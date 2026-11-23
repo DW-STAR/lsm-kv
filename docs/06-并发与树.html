@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>并发、锁、CAS 与树 —— 六个概念的完整拆解</title>
+<style>
+  :root {
+    --ink: #23221e;
+    --ink-2: #5b5850;
+    --ink-3: #8b877c;
+    --line: #e3dfd4;
+    --bg: #fbfaf6;
+    --card: #ffffff;
+    --accent: #185fa5;
+    --accent-bg: #eaf2fa;
+    --warn: #a32d2d;
+    --warn-bg: #fcefee;
+    --key: #0f6e56;
+    --key-bg: #e8f5f0;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 0 20px 96px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.85;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+
+  header { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 27px; line-height: 1.35; margin: 0 0 14px; font-weight: 600; letter-spacing: -0.3px; }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0; }
+  .meta { color: var(--ink-3); font-size: 13px; margin-top: 18px; }
+
+  h2 { font-size: 20px; font-weight: 600; margin: 56px 0 6px; padding-top: 8px; letter-spacing: -0.2px; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; font-weight: 500; }
+  h3 { font-size: 16.5px; font-weight: 600; margin: 30px 0 8px; color: var(--ink); }
+  p { margin: 12px 0; }
+  ul, ol { margin: 12px 0; padding-left: 22px; }
+  li { margin: 7px 0; }
+  strong { font-weight: 600; }
+  em { font-style: normal; background: linear-gradient(transparent 62%, #fdedb8 62%); padding: 0 1px; }
+  a { color: var(--accent); }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 0.88em; background: #f1efe7; padding: 1.5px 5px; border-radius: 3px;
+    color: #4a4238;
+  }
+  pre {
+    background: #f6f4ed; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .essence {
+    background: var(--key-bg); border-left: 3px solid var(--key);
+    padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0;
+  }
+  .essence .tag {
+    font-size: 12px; letter-spacing: 0.6px; color: var(--key);
+    display: block; margin-bottom: 6px; font-weight: 600;
+  }
+  .essence p { margin: 0; font-size: 15.5px; }
+
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .warn p { margin: 0; font-size: 15.5px; }
+  .warn .tag { font-size: 12px; color: var(--warn); font-weight: 600; display: block; margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13.5px; border-bottom: 1px solid #cdc7b8; }
+  td:first-child { white-space: nowrap; }
+  .wrap-cell td:first-child { white-space: normal; }
+
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 22px; margin: 32px 0; }
+  .toc h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: 0.5px; color: var(--ink-3); font-weight: 600; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin: 5px 0; font-size: 15px; }
+  .toc .why { color: var(--ink-3); font-size: 13.5px; }
+
+  .chain { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--ink-2); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; white-space: pre; line-height: 2; }
+
+  figure { margin: 26px 0; }
+  figure svg { display: block; width: 100%; height: auto; }
+  figcaption { color: var(--ink-3); font-size: 13.5px; margin-top: 8px; }
+
+  details { margin: 12px 0; padding: 10px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+  details p { margin: 10px 0 4px; font-size: 15.5px; }
+
+  footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13.5px; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; padding: 0 16px 72px; }
+    h1 { font-size: 23px; }
+    h2 { font-size: 18.5px; margin-top: 44px; }
+    table { font-size: 13.5px; }
+    th, td { padding: 7px 6px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>并发、锁、CAS 与树</h1>
+  <p class="sub">2026-11-02 晚上你问的六个概念：并发 / 竞态 / 加锁 / CAS / 红黑树 / 旋转。<br>按依赖顺序串成一条线，不是散装词条。</p>
+  <p class="meta">2026-11-03 整理 · 每个概念都落到「和你的 LSM 项目什么关系」</p>
+</header>
+
+<div class="toc">
+  <h3>目录</h3>
+  <ol>
+    <li>并发是什么 <span class="why">— 先把这个词拆干净</span></li>
+    <li>竞态条件 <span class="why">— 并发唯一真正的麻烦</span></li>
+    <li>加锁 <span class="why">— 用排队换正确</span></li>
+    <li>CAS <span class="why">— 不加锁怎么做到正确</span></li>
+    <li>二叉搜索树与红黑树 <span class="why">— set / map 的底层</span></li>
+    <li>旋转 <span class="why">— 树怎么调整形状</span></li>
+    <li>把线接上 <span class="why">— 为什么 LSM 用跳表不用红黑树</span></li>
+    <li>你的项目到底需要什么</li>
+    <li>自测 8 题</li>
+  </ol>
+</div>
+
+<div class="warn">
+  <span class="tag">先说结论，免得你背着压力读</span>
+  <p>这个项目<strong>不需要你做并发</strong>。你的引擎是单线程的，跳表也只需要单线程版。<br>
+  这份文档的目的不是让你会写并发，是让你<strong>听得懂别人在说什么</strong>，以及在面试里能解释「为什么选跳表」。</p>
+</div>
+
+<h2><span class="num">01</span>并发是什么</h2>
+
+<p>一个程序里有多条执行流<strong>同时</strong>在推进，就叫并发。</p>
+
+<p>常见的两种形态：</p>
+
+<table>
+  <tr><th>形态</th><th>共享什么</th><th>怎么通信</th><th>麻烦程度</th></tr>
+  <tr><td>多线程</td><td><strong>共享同一块内存</strong></td><td>直接读写同一个变量</td><td>高（互相踩数据）</td></tr>
+  <tr><td>多进程 / 多机</td><td>不共享</td><td>发消息、socket、文件</td><td>低（踩不到）</td></tr>
+</table>
+
+<p>注意这个区别：<strong>麻烦不是「同时」带来的，是「共享内存 + 同时改」带来的。</strong>
+两个进程各干各的、谁也不碰谁的数据，一点都不麻烦。</p>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>并发 = 多个执行流同时推进。<strong>它本身不是问题，「同时改同一份数据」才是问题。</strong></p>
+</div>
+
+<h3>你的程序现在是什么样</h3>
+
+<p>单线程。<code>main()</code> 进去，一条道跑到黑，中间没有任何东西跟你抢数据。</p>
+
+<p>所以你写 <code>entries_.push_back(rec)</code> 完全不用想「会不会有人同时也在 push」——不可能，只有你一个人在动它。</p>
+
+<p>但 LevelDB 的 MemTable 不是这样。它要同时服务几百个读请求和一个写请求，所以它才需要跳表那套设计（第 7 节讲）。</p>
+
+<h2><span class="num">02</span>竞态条件</h2>
+
+<p>假设 <code>x</code> 的初始值是 0。两个线程都执行 <code>x = x + 1</code>。</p>
+
+<p>直觉上结果是 2。但实际的执行顺序可能是这样：</p>
+
+<table>
+  <tr><th>时刻</th><th>线程 A</th><th>线程 B</th><th>x 的值</th></tr>
+  <tr><td>t1</td><td>读 x，得到 0</td><td>—</td><td>0</td></tr>
+  <tr><td>t2</td><td>—</td><td>读 x，得到 0</td><td>0</td></tr>
+  <tr><td>t3</td><td>算 0 + 1 = 1</td><td>—</td><td>0</td></tr>
+  <tr><td>t4</td><td>—</td><td>算 0 + 1 = 1</td><td>0</td></tr>
+  <tr><td>t5</td><td>写 x ← 1</td><td>—</td><td><strong>1</strong></td></tr>
+  <tr><td>t6</td><td>—</td><td>写 x ← 1</td><td><strong>1</strong></td></tr>
+</table>
+
+<p>结果 1。丢了一次加法。</p>
+
+<p><strong>最扎心的地方：A 没做错，B 也没做错。</strong> 单独跑任何一个，结果都对。错的是「它们交错的方式」。</p>
+
+<p>这叫<strong>竞态条件</strong>（race condition）。</p>
+
+<h3>根源：读-改-写 不是一步</h3>
+
+<p><code>x = x + 1</code> 在源码里是一行，在机器上至少是三步：</p>
+
+<pre><code>1. 从内存读 x 到寄存器
+2. 寄存器加 1
+3. 把寄存器写回内存</code></pre>
+
+<p>这三步之间，随时可能被切走。别人在这期间读到的，就是那个「旧的、还没改完的」值。</p>
+
+<p>所以并发编程的核心问题只有一个：<strong>如何让「读-改-写」这一串动作，对别人来说像一个不可分割的瞬间。</strong></p>
+
+<p>这种「不可分割、中间不给别人插队」的操作，叫<strong>原子操作</strong>（atomic operation）。这个词后面会反复出现。</p>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>竞态的根源是 <strong>「读-改-写」三步不是原子的</strong>。<br>
+  并发编程的整部历史，就是想办法把这三步变成一步。</p>
+</div>
+
+<h2><span class="num">03</span>加锁</h2>
+
+<p>最直觉的解法：<strong>动手之前先占住，别人在外面等。</strong></p>
+
+<p>心智模型就是一间屋子配一把挂锁、只有一把钥匙：</p>
+
+<ul>
+  <li>拿到钥匙才能进屋（<code>lock()</code>）</li>
+  <li>没钥匙的人在门口排队，什么都干不了（<strong>阻塞</strong>）</li>
+  <li>出来把钥匙还回去（<code>unlock()</code>）</li>
+</ul>
+
+<pre><code>std::mutex m;
+
+// 线程 A 和 B 都执行这段
+m.lock();          // 占住；如果别人占着，就在这里等
+x = x + 1;         // 现在保证只有我一个人在动 x
+m.unlock();        // 放手</code></pre>
+
+<p>现在无论怎么交错，A 的「读-改-写」和 B 的「读-改-写」不会重叠。结果一定是 2。</p>
+
+<h3>三个代价</h3>
+
+<table>
+  <tr><th>代价</th><th>具体是什么</th><th>什么时候致命</th></tr>
+  <tr><td>阻塞</td><td>等锁的线程<b>什么都干不了</b>，纯浪费 CPU 时间片</td><td>锁持有时间长（比如锁住期间做 IO）</td></tr>
+  <tr><td>开销</td><td>加锁解锁本身要几十纳秒，还要处理缓存一致性</td><td>高频短操作（比如每次加一个计数器）</td></tr>
+  <tr><td>死锁</td><td>A 等 B 放锁，B 等 A 放锁，两个人永远等下去</td><td>一个线程要同时拿两把锁时</td></tr>
+</table>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>锁是<strong>悲观</strong>策略：<em>先假设有人会来抢，所以先占住</em>。<br>
+  它用「排队的时间」换取「绝对的正确」。简单、可靠、代价是慢。</p>
+</div>
+
+<h2><span class="num">04</span>CAS</h2>
+
+<p>加锁是悲观派。还有一派叫<strong>乐观派</strong>：</p>
+
+<blockquote style="margin:16px 0;padding-left:16px;border-left:2px solid var(--line);color:var(--ink-2);">
+「先干，干完交货的时候检查一下有没有人动过。没动过就算成功，动过就重做。」
+</blockquote>
+
+<p>这个「检查 + 改」的动作，硬件提供了现成的一条指令，叫 <strong>CAS</strong>（Compare-And-Swap，比较并交换）。</p>
+
+<h3>它做什么</h3>
+
+<pre><code>CAS(内存位置, 我以为是旧值, 要改成的新值)：
+
+    如果 现在内存里存的值 == 我以为是旧值：
+        内存里的值 = 新值
+        返回 true          ← 成功
+    否则：
+        什么都不做
+        返回 false         ← 有人抢先改过了</code></pre>
+
+<p>关键词是<strong>「比较」和「写入」在硬件层面是一步完成的</strong>。中间没有任何缝隙可以让别的线程插进来。这就是它原子的物理基础。</p>
+
+<h3>怎么用它做加法</h3>
+
+<p>失败就重来，循环到成功为止。这个循环有个名字叫<strong>自旋</strong>（spin）。</p>
+
+<pre><code>do {
+    old  = x;                    // 读当前值
+    newv = old + 1;              // 算新值
+} while (!CAS(&amp;x, old, newv));   // 如果这期间 x 被别人改过，重来</code></pre>
+
+<p>走一遍上面那个丢加法的场景：</p>
+
+<ul>
+  <li>A 读到 0，算好 1，CAS(0 → 1) 成功，x = 1</li>
+  <li>B 也读到 0，算好 1，CAS(x, 期望 0, 改成 1) —— <strong>但 x 现在是 1，不等于期望的 0 → 失败</strong></li>
+  <li>B 重来：读到 1，算好 2，CAS(1 → 2) 成功，x = 2</li>
+</ul>
+
+<p>结果正确。而且<strong>全程没有一把锁，没有任何人阻塞</strong>。</p>
+
+<h3>和锁的对比</h3>
+
+<table class="wrap-cell">
+  <tr><th></th><th>加锁</th><th>CAS</th></tr>
+  <tr><td>策略</td><td>悲观：先占住再干</td><td>乐观：先干，冲突了重做</td></tr>
+  <tr><td>冲突时</td><td>排队等</td><td>重试</td></tr>
+  <tr><td>冲突少时</td><td>慢（每次都白加一次锁）</td><td><strong>快</strong>（一次就成）</td></tr>
+  <tr><td>冲突多时</td><td>稳（等就完了）</td><td>惨（一直重试，白烧 CPU）</td></tr>
+  <tr><td>会不会死锁</td><td>会</td><td><strong>不会</strong>（没有人持有什么）</td></tr>
+  <tr><td>写起来</td><td>简单</td><td>复杂（要想清楚每步重试）</td></tr>
+</table>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>CAS 是<strong>一条 CPU 指令</strong>，把「比较」和「写入」压成一个不可分割的瞬间。<br>
+  它让「改数据」不再需要排队——<em>代价是冲突时要重做</em>。</p>
+</div>
+
+<div class="warn">
+  <span class="tag">一个经典坑：ABA 问题</span>
+  <p>值从 A 变成 B，又变回 A。CAS 看「现在是 A，和我期望的 A 一样」，就以为没人动过——其实动过两次。<br>
+  解法：不比较值，比较<strong>版本号</strong>（每改一次 +1）。知道有这么回事就够了。</p>
+</div>
+
+<h2><span class="num">05</span>二叉搜索树与红黑树</h2>
+
+<h3>先看二叉搜索树（BST）</h3>
+
+<p>规则一句话：<strong>左边全比我小，右边全比我大。</strong></p>
+
+<p>所以查找像查字典：比当前节点小就往左走，大就往右走。走到底还没找到，就是不存在。</p>
+
+<p><strong>代价是树的高度</strong>。树有多高，最坏就要走多少步。</p>
+
+<h3>问题：它会长歪</h3>
+
+<p>如果你按 1, 2, 3, 4, 5 的顺序插入：</p>
+
+<figure>
+<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="60" y="30" font-size="13" font-weight="500" fill="#23221e">按 1,2,3,4,5 顺序插入 BST</text>
+
+  <path d="M100 66 L126 104" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M150 120 L176 158" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M200 174 L226 212" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#a2)"/>
+  <path d="M250 228 L276 266" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#a2)"/>
+
+  <circle cx="90" cy="56" r="18" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="90" y="56" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#501313">1</text>
+  <circle cx="140" cy="110" r="18" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="140" y="110" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#501313">2</text>
+  <circle cx="190" cy="164" r="18" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="190" y="164" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#501313">3</text>
+  <circle cx="240" cy="218" r="18" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="240" y="218" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#501313">4</text>
+  <circle cx="290" cy="272" r="18" fill="#FCEBEB" stroke="#A32D2D" stroke-width="0.5"/>
+  <text x="290" y="272" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#501313">5</text>
+
+  <text x="340" y="86" font-size="13" fill="#5F5E5A">每个新节点都往右下挂</text>
+  <text x="340" y="112" font-size="13" fill="#5F5E5A">高度 = 5（就是元素个数）</text>
+  <text x="340" y="146" font-size="13" font-weight="500" fill="#A32D2D">查找 5 要走 5 步 → O(n)</text>
+  <text x="340" y="180" font-size="13" fill="#5F5E5A">它退化成了一个链表</text>
+  <text x="340" y="214" font-size="13" fill="#5F5E5A">和不用树一模一样快慢</text>
+  <text x="60" y="305" font-size="12" fill="#8b877c">如果树是平衡的（高度 ≈ log₂n），100 万个元素只要 20 步。这就是「平衡」的全部价值。</text>
+</svg>
+<figcaption>BST 的死穴：插入顺序决定形状。有序数据直接把它压成一条链。</figcaption>
+</figure>
+
+<h3>解法：不平衡就调整</h3>
+
+<p>插入或删除之后，如果树长歪了，就<strong>调整节点的父子关系</strong>，把它拉回平衡。这个动作就是第 6 节的「旋转」。</p>
+
+<p>两个流派：</p>
+
+<table class="wrap-cell">
+  <tr><th></th><th>AVL 树</th><th>红黑树</th></tr>
+  <tr><td>平衡程度</td><td>严格：左右子树高度差 ≤ 1</td><td>近似：最长路径 ≤ 最短路径的 2 倍</td></tr>
+  <tr><td>树高</td><td>更低（查找更快一点点）</td><td>稍高</td></tr>
+  <tr><td>插入删除的调整</td><td>可能要一路调整到根</td><td><strong>最多 3 次旋转就收工</strong></td></tr>
+  <tr><td>用在哪</td><td>读远多于写的场景</td><td><strong>通用场景，工程默认选择</strong></td></tr>
+</table>
+
+<p>红黑树靠「给节点染红染黑 + 几条颜色规则」来间接保证近似平衡。你不用背那五条规则，只要知道：<strong>它用颜色约束代替了 AVL 的严格高度约束，换来了更少的调整次数。</strong></p>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>平衡树的存在意义只有一个：<strong>把树高压到 O(log n)</strong>。<br>
+  AVL 压得更狠但调整频繁，红黑树松一点但省事——<em>工程上永远选后者的性价比</em>。</p>
+</div>
+
+<h3>你的猜测：set / map 底层是红黑树吗</h3>
+
+<p><strong>是。而且这是标准规定的间接结果。</strong></p>
+
+<table>
+  <tr><th>容器</th><th>底层结构</th><th>有序吗</th><th>查找复杂度</th></tr>
+  <tr><td><code>std::set</code> / <code>std::map</code></td><td><strong>红黑树</strong></td><td>有序（按 key 排序）</td><td>O(log n)</td></tr>
+  <tr><td><code>std::unordered_set</code> / <code>unordered_map</code></td><td>哈希表</td><td>无序</td><td>平均 O(1)，最坏 O(n)</td></tr>
+  <tr><td><code>std::vector</code></td><td>连续数组</td><td>看你怎么放</td><td>O(n)（但常数极小）</td></tr>
+</table>
+
+<p>C++ 标准没写「必须用红黑树」，它只要求「插入/删除/查找都是 O(log n) + 迭代器稳定」。但能满足这个的组合里红黑树最划算，所以 libstdc++、libc++、MSVC STL <strong>三家都用红黑树</strong>。</p>
+
+<p>你打 ACM 时用 <code>map&lt;int,int&gt;</code> 觉得「自动排序好方便」——那个「自动排序」就是红黑树在每次插入后默默旋转出来的。</p>
+
+<h2><span class="num">06</span>旋转</h2>
+
+<p>旋转是<strong>不改变数据大小关系、只改变父子关系</strong>的调整动作。分左旋和右旋，互为镜像，看一个就够。</p>
+
+<figure>
+<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <text x="170" y="26" text-anchor="middle" font-size="13" font-weight="500" fill="#23221e">左旋前</text>
+  <text x="510" y="26" text-anchor="middle" font-size="13" font-weight="500" fill="#23221e">左旋后</text>
+
+  <path d="M160 84 L116 131" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M180 84 L226 131" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M232 164 L208 201" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M250 164 L268 201" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <circle cx="170" cy="70" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="170" y="70" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">A</text>
+  <circle cx="105" cy="145" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="105" y="145" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">x</text>
+  <circle cx="240" cy="145" r="18" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text x="240" y="145" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#412402">B</text>
+  <circle cx="200" cy="220" r="18" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text x="200" y="220" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#412402">y</text>
+  <circle cx="275" cy="220" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="275" y="220" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">z</text>
+
+  <path d="M300 145 L380 145" fill="none" stroke="#185FA5" stroke-width="2" marker-end="url(#a3)"/>
+  <text x="340" y="126" text-anchor="middle" font-size="12" font-weight="500" fill="#185FA5">左旋 A</text>
+
+  <path d="M500 84 L456 131" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M520 84 L566 131" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M442 164 L408 201" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <path d="M452 164 L472 201" fill="none" stroke="#888780" stroke-width="1.5"/>
+  <circle cx="510" cy="70" r="18" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text x="510" y="70" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#412402">B</text>
+  <circle cx="445" cy="145" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="445" y="145" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">A</text>
+  <circle cx="580" cy="145" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="580" y="145" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">z</text>
+  <circle cx="400" cy="220" r="18" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="400" y="220" text-anchor="middle" dominant-baseline="central" font-size="14" fill="#23221e">x</text>
+  <circle cx="480" cy="220" r="18" fill="#FAEEDA" stroke="#854F0B" stroke-width="1"/>
+  <text x="480" y="220" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#412402">y</text>
+
+  <text x="60" y="268" font-size="12" fill="#8b877c">中序遍历（左-根-右）：</text>
+  <text x="60" y="290" font-size="13" fill="#23221e">左旋前 x A y B z　　左旋后 x A y B z　　← 完全一样</text>
+  <text x="60" y="312" font-size="12" fill="#8b877c">所以旋转不改变大小关系，只改「谁是谁的爹」。这就是它合法的原因。</text>
+</svg>
+<figcaption>左旋 A：右孩子 B 上位当爹，A 降级当 B 的左孩子，B 原来的左子树 y 挂到 A 的右边。</figcaption>
+</figure>
+
+<h3>为什么旋转是安全的</h3>
+
+<p>看图上最下面那行：<strong>两棵树的中序遍历结果是同一个序列</strong> <code>x A y B z</code>。</p>
+
+<p>中序遍历（左-根-右）在 BST 上得到的就是「从小到大排好的顺序」。两个序列一样，说明<strong>所有元素的大小关系一点没变</strong>，变的只是「谁挂在谁下面」。</p>
+
+<p>这就是旋转合法的全部理由：<strong>它调整的是形状，不是数据。</strong></p>
+
+<h3>红黑树怎么用它</h3>
+
+<pre><code>插入一个新节点（染红）
+    ↓
+如果违反颜色规则
+    ↓
+先试「变色」（改颜色不动结构，便宜）
+    ↓
+变色不够了 → 旋转（左旋 / 右旋 / 先左后右 / 先右后左）
+    ↓
+最多 3 次旋转，收工</code></pre>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>旋转 = <strong>在不改变元素顺序的前提下，重新分配父子关系</strong>。<br>
+  它是「调整树的形状」这件事唯一不破坏排序性质的做法。</p>
+</div>
+
+<h2><span class="num">07</span>把线接上：为什么 LSM 用跳表不用红黑树</h2>
+
+<p>前面六个概念到这里全部合流。看这条因果链：</p>
+
+<div class="chain">红黑树维持平衡
+    → 必须旋转
+    → 一次旋转要改三四个指针（A 的右孩子、B 的左孩子、y 的父亲…）
+    → 改到一半被打断，树就是坏的
+    → 所以只能加锁，把整条路径锁住
+    → 读的人也要抢锁</div>
+
+<div class="chain" style="margin-top:10px;">跳表维持平衡
+    → 不旋转，靠抛硬币决定新节点有几层
+    → 插入只改「前驱节点的 next」这一个指针
+    → 一条指令就能改完 → 用 CAS 一步搞定
+    → 读的人永远看到完整状态，完全不用加锁</div>
+
+<p><strong>这就是「为什么 LSM 用跳表」的技术根源。</strong></p>
+
+<h3>四条理由（面试按这个顺序说）</h3>
+
+<ol>
+  <li><strong>并发：读侧可以不加锁。</strong> MemTable 是<strong>单写多读</strong>——一个写线程，几百个读线程。跳表插入用 CAS 改一个指针，读的人不需要等；红黑树旋转要锁住一大片，读的人全被堵住。</li>
+  <li><strong>MemTable 活得短，不需要严格平衡。</strong> 它几 MB 就冻结落盘了，是个短命的写缓冲，而且从不删（删除也是写墓碑）。花力气维持严格平衡，收益接近零。</li>
+  <li><strong>底层是链表，天然能顺序遍历。</strong> 刷盘写 SSTable 时要把 key 按序吐出来，从 L0 头节点走一遍就行；红黑树中序遍历要递归或显式栈。</li>
+  <li><strong>代码短。</strong> 红黑树插入有 4 种情况加镜像，删除更麻烦；跳表插入就是「找每层前驱 + 链表插入」。</li>
+</ol>
+
+<h3>面试话术（背这一句）</h3>
+
+<div class="essence">
+  <span class="tag">当场这么说</span>
+  <p>「MemTable 是单写多读的场景，跳表插入只需要 CAS 改前驱的 next 指针，读侧可以完全不加锁；红黑树旋转要锁住整条路径。加上 MemTable 是短命的内存写缓冲、不需要严格平衡，所以 LevelDB 选跳表。」</p>
+</div>
+
+<h3>跳表的缺点（别只听好的）</h3>
+
+<table>
+  <tr><th>缺点</th><th>说明</th></tr>
+  <tr><td>缓存不友好</td><td>链表跳来跳去，每跳一次基本一次 cache miss</td></tr>
+  <tr><td>最坏 O(n)</td><td>理论上存在（连续掷出极端结果），概率极低</td></tr>
+  <tr><td>内存</td><td>每节点平均 2 个指针，和红黑树差不多</td></tr>
+</table>
+
+<p>所以准确的说法不是「跳表更好」，而是<strong>「跳表更匹配 MemTable 这个场景」</strong>。Redis 的 ZSet 也选它，理由类似。</p>
+
+<h2><span class="num">08</span>你的项目到底需要什么</h2>
+
+<p>划清边界，别把力气花错地方：</p>
+
+<table class="wrap-cell">
+  <tr><th>内容</th><th>要不要</th><th>说明</th></tr>
+  <tr><td>单线程跳表（Insert / Search / Delete）</td><td><strong>要，亲手写</strong></td><td>Week 3 的全部内容，不难</td></tr>
+  <tr><td>并发、锁、CAS 的代码</td><td><strong>不用写</strong></td><td>你的引擎是单线程的</td></tr>
+  <tr><td>知道这几个词是什么</td><td><strong>要</strong></td><td>面试会问，也才看得懂 LevelDB 的注释</td></tr>
+  <tr><td>红黑树的实现</td><td><strong>不用</strong></td><td>知道它是什么、为什么不用它，就够了</td></tr>
+</table>
+
+<div class="warn">
+  <span class="tag">一个判断</span>
+  <p>你现在缺的不是「并发编程能力」，是<strong>「这些词指什么」的常识</strong>。<br>
+  常识补起来很快——看完这份文档，你已经能听懂 90% 的相关讨论了。剩下的深度，等你真要写多线程服务时再补。</p>
+</div>
+
+<h2><span class="num">09</span>自测 8 题</h2>
+
+<p>能答上来 6 个就算过关。想不起来的回头看对应小节。</p>
+
+<details>
+<summary>1. 并发本身有错吗？</summary>
+<p>没有。<strong>「同时改同一份共享数据」才有错。</strong>两个进程各干各的、谁也不碰谁，完全不麻烦。</p>
+</details>
+
+<details>
+<summary>2. <code>x = x + 1</code> 为什么会被别的线程插队？</summary>
+<p>因为它在机器上是「读 → 算 → 写」三步，不是一步。这三步之间随时可能被切走。</p>
+</details>
+
+<details>
+<summary>3. 加锁的三个代价是什么？</summary>
+<p>阻塞（等的期间什么都干不了）、开销（加解锁本身要时间）、死锁（互相等对方放锁）。</p>
+</details>
+
+<details>
+<summary>4. CAS 是什么？为什么它能替掉锁？</summary>
+<p>一条 CPU 指令：<strong>「如果内存里的值还是我以为的旧值，就改成新值」</strong>。「比较」和「写入」在硬件层面是一步完成的，中间没有缝隙给人插队。所以不需要排队占住，冲突了重试就行。</p>
+</details>
+
+<details>
+<summary>5. 按 1,2,3,4,5 顺序插入二叉搜索树，会发生什么？</summary>
+<p>树退化成一条链，高度 = 5，查找变成 O(n)。因为每个新元素都比之前所有元素大，只能一路往右下挂。</p>
+</details>
+
+<details>
+<summary>6. 红黑树和 AVL 树的区别？</summary>
+<p>AVL 严格平衡（高度差 ≤ 1），查找快但调整频繁；红黑树近似平衡（最长路径 ≤ 最短路径 × 2），调整次数少。<strong>工程上默认选红黑树</strong>，就是因为它省事。</p>
+</details>
+
+<details>
+<summary>7. 旋转为什么不破坏排序？</summary>
+<p>因为旋转前后<strong>中序遍历结果完全一样</strong>。中序遍历就是「从小到大」，序列没变说明大小关系没变，变的只是父子关系。</p>
+</details>
+
+<details>
+<summary>8. 为什么 LSM 用跳表不用红黑树？</summary>
+<p>红黑树维持平衡要旋转，旋转要改一片指针，只能加锁，读侧也被堵住。跳表靠抛硬币决定层数，插入只改前驱的一个 next 指针，一条 CAS 就完成，读侧完全不用锁。加上 MemTable 是单写多读、短命、不需要严格平衡。</p>
+</details>
+
+<h2><span class="num">10</span>术语表</h2>
+
+<table class="wrap-cell">
+  <tr><th>中文</th><th>英文</th><th>一句话</th></tr>
+  <tr><td>并发</td><td>concurrency</td><td>多个执行流同时推进</td></tr>
+  <tr><td>竞态条件</td><td>race condition</td><td>交错顺序不同导致结果不同</td></tr>
+  <tr><td>原子操作</td><td>atomic operation</td><td>不可分割、中间不被打断</td></tr>
+  <tr><td>互斥锁</td><td>mutex / lock</td><td>占住才能改，别人排队</td></tr>
+  <tr><td>阻塞</td><td>blocking</td><td>等的时候什么都干不了</td></tr>
+  <tr><td>自旋</td><td>spin</td><td>不睡，反复重试直到成功</td></tr>
+  <tr><td>比较并交换</td><td>CAS (compare-and-swap)</td><td>一条指令完成「判断 + 写入」</td></tr>
+  <tr><td>死锁</td><td>deadlock</td><td>两边互相等对方放手</td></tr>
+  <tr><td>无锁</td><td>lock-free</td><td>不用锁也能保证正确</td></tr>
+  <tr><td>二叉搜索树</td><td>BST</td><td>左小右大，查找 O(树高)</td></tr>
+  <tr><td>平衡树</td><td>balanced tree</td><td>插完调形状，保证树高 O(log n)</td></tr>
+  <tr><td>红黑树</td><td>red-black tree</td><td>靠颜色约束维持近似平衡</td></tr>
+  <tr><td>旋转</td><td>rotation</td><td>不改顺序、只改父子关系</td></tr>
+  <tr><td>跳表</td><td>skip list</td><td>链表 + 抛硬币决定的多层索引</td></tr>
+</table>
+
+<footer>
+  <p>2026-11-03 整理 · 对应 <code>docs/study-plan.md</code> Week 3 的前置知识<br>
+  下一份要读的：跳表实现（Week 3 周二到周五的代码）。</p>
+</footer>
+
+</div>
+</body>
+</html>

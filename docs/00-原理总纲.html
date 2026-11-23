@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LSM-KV 原理总纲</title>
+<style>
+  :root {
+    --ink: #23221e;
+    --ink-2: #5b5850;
+    --ink-3: #8b877c;
+    --line: #e3dfd4;
+    --bg: #fbfaf6;
+    --card: #ffffff;
+    --accent: #185fa5;
+    --accent-bg: #eaf2fa;
+    --warn: #a32d2d;
+    --warn-bg: #fcefee;
+    --key: #0f6e56;
+    --key-bg: #e8f5f0;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 0 20px 96px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.85;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+
+  header { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 27px; line-height: 1.35; margin: 0 0 14px; font-weight: 600; letter-spacing: -0.3px; }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0; }
+  .meta { color: var(--ink-3); font-size: 13px; margin-top: 18px; }
+
+  h2 {
+    font-size: 20px; font-weight: 600; margin: 56px 0 6px;
+    padding-top: 8px; letter-spacing: -0.2px;
+  }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; font-weight: 500; }
+  h3 { font-size: 16.5px; font-weight: 600; margin: 30px 0 8px; color: var(--ink); }
+  p { margin: 12px 0; }
+  ul, ol { margin: 12px 0; padding-left: 22px; }
+  li { margin: 7px 0; }
+  strong { font-weight: 600; }
+  em { font-style: normal; background: linear-gradient(transparent 62%, #fdedb8 62%); padding: 0 1px; }
+  a { color: var(--accent); }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 0.88em; background: #f1efe7; padding: 1.5px 5px; border-radius: 3px;
+    color: #4a4238;
+  }
+  pre {
+    background: #f6f4ed; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .essence {
+    background: var(--key-bg); border-left: 3px solid var(--key);
+    padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0;
+  }
+  .essence .tag {
+    font-size: 12px; letter-spacing: 0.6px; color: var(--key);
+    display: block; margin-bottom: 6px; font-weight: 600;
+  }
+  .essence p { margin: 0; font-size: 15.5px; }
+
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .warn p { margin: 0; font-size: 15.5px; }
+  .warn .tag { font-size: 12px; color: var(--warn); font-weight: 600; display: block; margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13.5px; border-bottom: 1px solid #cdc7b8; }
+  td:first-child { white-space: nowrap; }
+  .wrap-cell td:first-child { white-space: normal; }
+
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 22px; margin: 32px 0; }
+  .toc h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: 0.5px; color: var(--ink-3); font-weight: 600; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin: 5px 0; font-size: 15px; }
+  .toc .why { color: var(--ink-3); font-size: 13.5px; }
+
+  .five { counter-reset: f; list-style: none; padding: 0; }
+  .five li { counter-increment: f; position: relative; padding-left: 34px; margin: 14px 0; }
+  .five li::before {
+    content: counter(f); position: absolute; left: 0; top: 2px;
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-size: 12.5px; text-align: center; line-height: 22px; font-weight: 600;
+  }
+
+  .chain { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--ink-2); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; white-space: pre; line-height: 2; }
+
+  footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13.5px; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; padding: 0 16px 72px; }
+    h1 { font-size: 23px; }
+    h2 { font-size: 18.5px; margin-top: 44px; }
+    table { font-size: 13.5px; }
+    th, td { padding: 7px 6px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>LSM-KV 存储引擎 · 原理总纲</h1>
+  <p class="sub">只讲「为什么」，不讲「怎么写」。代码在 <code>D:\code\lsm-kv</code>，语法问题去查 02/03/04/05 那几份。</p>
+  <p class="meta">2026-10-28 整理 · 覆盖 10-16 → 10-26 全部内容</p>
+</header>
+
+<div class="toc">
+  <h3>怎么用这份文档</h3>
+  <p style="margin:0 0 14px;font-size:15px;color:var(--ink-2)">
+    <strong>不要通读。</strong>通读只会变成「看过了」而已。闲下来的时候挑一节，看完能对着空气讲一遍再走。
+  </p>
+  <ol>
+    <li>三个物理事实 <span class="why">— 全书的地基，先看这个</span></li>
+    <li>只追加 <span class="why">— 整个项目最重要的一条约束</span></li>
+    <li>WAL：先记账再动钱 <span class="why">— 崩溃恢复的全部原理</span></li>
+    <li>格式：让字节说清自己 <span class="why">— 编码设计的取舍</span></li>
+    <li>三层缓冲 <span class="why">— 你的数据到底停在哪</span></li>
+    <li>校验：长度检查为什么不够 <span class="why">— 静默错误</span></li>
+    <li>这套东西会长成什么 <span class="why">— MemTable / SSTable / Compaction</span></li>
+    <li>三种放大 <span class="why">— 面试必问，也是所有调参的本质</span></li>
+    <li>B+ 树 vs LSM <span class="why">— 为什么不用 MySQL 那一套</span></li>
+    <li>面试怎么讲 <span class="why">— 3 分钟结构</span></li>
+    <li>术语中英对照 <span class="why">— 你的弱项，攒着</span></li>
+  </ol>
+</div>
+
+<h2><span class="num">01</span>三个物理事实，逼出了全部设计</h2>
+
+<p>这个项目里没有一个设计是「因为优雅」才被选中的。每一个都是被硬件逼出来的。记住这三个事实，后面所有问题你都能自己推。</p>
+
+<table>
+  <tr><th>物理事实</th><th>逼出了什么</th></tr>
+  <tr>
+    <td>内存一断电就没了</td>
+    <td>必须有磁盘上的持久副本 → <strong>WAL</strong></td>
+  </tr>
+  <tr>
+    <td>磁盘比内存慢 3~5 个数量级<br><span style="color:var(--ink-3);font-size:13px">内存 ~100ns / SSD ~100μs / 机械盘 ~10ms</span></td>
+    <td>不能每次读写都碰盘 → 内存缓存 + 批量落盘</td>
+  </tr>
+  <tr>
+    <td>磁盘「就地改写」会留下中间态<br>「顺序写」比「随机写」快一个数量级以上</td>
+    <td>只能追加写 → <strong>LSM 的全部赌注</strong></td>
+  </tr>
+</table>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>LSM 不是发明了什么新数据结构。它做的是<strong>把随机写重排成顺序写</strong>，然后接受「读变麻烦」这个代价。整个项目后面所有的复杂度，都是在还这笔账。</p>
+</div>
+
+<p>对比一下另一条路：MySQL 用的 B+ 树是「就地更新」—— 找到那条记录在盘上的位置，改掉它。读很快（一次树查找就够），写很慢（随机写 + 节点分裂）。</p>
+
+<p>所以两类数据库的分工是清楚的：<strong>读多写少用 B+ 树，写多读少用 LSM。</strong>HBase、Cassandra、RocksDB、LevelDB、TiKV 全是 LSM。这不是偏好，是被自己的业务形态选出来的。</p>
+
+<h2><span class="num">02</span>只追加：唯一安全的写入方式</h2>
+
+<p>先看「就地改写」崩在中间会发生什么。假设日志允许按 key 定位、原地覆盖：</p>
+
+<pre><code>完整：  [name][liupei]
+改写：  [name][zh       ← 写到 'h' 断电
+结果：  [name][zhei]    ← 前 2 字节是新的，后 4 字节是旧的</code></pre>
+
+<p><code>"zhei"</code> 这个值<strong>从来没被任何人写过</strong>。它不是旧值，也不是新值。长度字段还是原来那个，看着完全合法 —— 你重放时凭什么都判断不出这条该信还是该扔。</p>
+
+<p>这不是「丢了新数据」，是<strong>凭空造出一条假数据</strong>。前者你能发现，后者你发现不了。</p>
+
+<p>再看只追加：</p>
+
+<pre><code>完整：  [...历史...][name][liupei]
+追加：  [...历史...][name][liupei][name][zh    ← 写到一半断电
+结果：  历史完好如初，最后一条长度不够 → 认出是残的 → 丢掉</code></pre>
+
+<p>旧数据一个字节都没被动过。你付出的代价只是一条垃圾记录，而且这条垃圾你识别得出来。</p>
+
+<h3>抽象出来：损坏的「半径」</h3>
+
+<table>
+  <tr><th></th><th>就地改写</th><th>只追加</th></tr>
+  <tr><td>一次崩溃能毁掉</td><td>任意一条本来完好的记录</td><td>只可能是最后一条</td></tr>
+  <tr><td>前缀还有效吗</td><td>不一定</td><td><strong>永远有效</strong></td></tr>
+  <tr><td>怎么恢复</td><td>无法判断，只能整段丢或整段信</td><td>砍掉尾巴，前面照用</td></tr>
+</table>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p>WAL 的全部价值建立在「前缀永远有效」这个性质上。就地改写在物理上摧毁了它 —— 那就不再是 WAL，只是一个「可能到处是洞的文件」。</p>
+</div>
+
+<h3>还有三条理由，一条比一条硬</h3>
+
+<p><strong>① 没有历史，就没有重放。</strong>就地改写的本质是把旧值擦掉写新值，它只保留「最后状态」，不保留「变化过程」。而重放需要的是过程：先 <code>Put name=liupei</code>，再 <code>Put name=liupei_v2</code>，再 <code>Delete name</code> —— 按顺序走一遍，状态才重建得出来。允许覆盖，历史就没了，你手上只剩「name 现在是什么」，那不就是个普通文件吗？<strong>WAL 这个概念会消失。</strong></p>
+
+<p>所以「只追加」不是实现选项，<strong>它是 WAL 的定义性约束</strong>。</p>
+
+<p><strong>② 并发。</strong>追加写天然串行：所有写都在末尾排队，多线程只需要抢「谁先拿到末尾位置」，一个原子自增就够。就地改写要防两个线程踩同一位置，就得加锁；锁一加，复杂度上一个量级。存储里能避开锁的地方都值得避开。</p>
+
+<p><strong>③ SSD 的物理层。</strong>SSD 不能原地改一个字节。改一个 4KB page，得把整个 512KB block 读出来、擦掉、再写回去 —— 写放大 128 倍。而顺序追加正好是 SSD 最喜欢的模式。你在算法层选了只追加，在硬件层白拿一个数量级的性能。</p>
+
+<div class="warn">
+  <span class="tag">这条要背下来</span>
+  <p><strong>「删整个文件」是安全的，「改文件里的一个字节」是危险的。</strong>LevelDB 的 WAL 写满一个文件，不会回头清理它，而是直接开一个新的（<code>000001.log</code> → <code>000002.log</code>）。等内存数据 dump 成 SSTable 之后，整个旧文件一起删掉。后面做 Compaction 会反复用到这条。</p>
+</div>
+
+<h2><span class="num">03</span>WAL：先记账，再动钱</h2>
+
+<p>WAL = <strong>Write-Ahead Log</strong>。三个词拆开：</p>
+
+<ul>
+  <li><strong>Log</strong> = 一个只往后追加的记录本，不回头改</li>
+  <li><strong>Write</strong> = 写</li>
+  <li><strong>Ahead</strong> = 提前、在前面 —— <strong>这个词才是全部内容</strong></li>
+</ul>
+
+<p><code>Ahead</code> 指的是：<em>日志必须走在真正的数据前面。</em></p>
+
+<h3>会计用了五百年的办法</h3>
+
+<p>你往银行存 100 块，会计不是直接改你的余额，而是分两步：</p>
+
+<ol>
+  <li>在<strong>流水账</strong>上记一行：<code>10-28 / 存入 / +100</code></li>
+  <li>然后才去改<strong>总账</strong>里的余额：<code>1200 → 1300</code></li>
+</ol>
+
+<p>为什么？因为两种账本性质完全不同。流水账只往后加，旧的每一行永远不动 —— 写到一半断电，最多最后一行没写完，前面九万行一个字节都没坏。总账是就地改写 —— 把 1200 划掉写 1300，写到一半断电，这格里是空的还是两个数字的碎片？<strong>没人知道，这笔账废了。</strong></p>
+
+<p>所以规矩是：先记流水，再动总账。断电了拿流水账从头重放一遍，总账就修好了。</p>
+
+<p><strong>数据库里的 WAL 就是把这套东西搬进机器。</strong></p>
+
+<h3>对回代码</h3>
+
+<table>
+  <tr><th>会计</th><th>你的代码</th></tr>
+  <tr><td>流水账（只追加）</td><td><code>wal.log</code> — <code>Append</code> 只往后写</td></tr>
+  <tr><td>总账（改一处算一处）</td><td><code>entries_</code> — 内存里「当前是什么」</td></tr>
+  <tr><td>先记流水再动总账</td><td><code>WriteRecord</code> 里 <code>push_back</code> 排在 <code>flush</code> 之后</td></tr>
+  <tr><td>断电后拿流水重放</td><td><code>Load()</code> 读回来重建</td></tr>
+</table>
+
+<p>那 7 行里 <code>entries_.push_back(rec)</code> 排在最后不是随手排的 —— <strong>那就是 <code>Ahead</code> 这个词在代码里的位置。</strong>挪到第一行，逻辑还跑得通，但名字里的承诺已经失效了。</p>
+
+<h3>为什么顺序不能反</h3>
+
+<table>
+  <tr><th>做法</th><th>崩在两步中间</th><th>后果</th></tr>
+  <tr>
+    <td>先内存，后文件</td><td>内存有了，盘上没有</td>
+    <td><strong>数据永久消失</strong>，而客户端当时被告知「写成功」</td>
+  </tr>
+  <tr>
+    <td>先文件，后内存</td><td>盘上有了，内存没有</td>
+    <td>重启 Load 一跑，<strong>数据自己回来</strong></td>
+  </tr>
+</table>
+
+<p>关键认知：<strong>内存里的东西不是数据本身，是数据的副本。</strong><code>entries_</code> 本来就是 <code>Load</code> 从文件读出来的。副本丢了不叫丢数据 —— 重建的成本约等于零（而且 <code>Load</code> 每次启动本来就要跑）。</p>
+
+<p>反过来，先写内存时 <code>push_back</code> 成功了、<code>write</code> 失败了，这时客户端已经拿到「成功」，进程一死，那条记录<strong>在世界上任何地方都不存在了</strong>。没有「再来一遍」的机会，因为写它的那个人已经不在了。</p>
+
+<div class="essence">
+  <span class="tag">还有一条更硬的工程理由</span>
+  <p>顺序反了，你就必须实现<strong>回滚</strong>（写内存成功、写文件失败 → 得 <code>pop_back</code> 掉）。回滚要保证「退回去之后跟没发生过一模一样」，在并发下几乎必然写错。<br>
+  顺序对了<strong>根本不需要回滚</strong>：文件写失败，内存压根没动，直接返回错误，状态是干净的。<br><br>
+  好设计的标志，常常不是「考虑得更周全」，而是<strong>「根本不需要补救」</strong>。</p>
+</div>
+
+<h2><span class="num">04</span>格式：让字节说清自己</h2>
+
+<p>一条记录在文件里长这样（小端）：</p>
+
+<pre><code>┌──────┬────────────┬──────────┬────────────┬───────────┐
+│  1B  │     4B     │  klen B  │     4B     │  vlen B   │
+│ type │   key长度   │   key    │ value长度   │   value   │
+└──────┴────────────┴──────────┴────────────┴───────────┘</code></pre>
+
+<h3>为什么必须是「长度前缀」</h3>
+
+<p>最直觉的做法是用分隔符，比如换行符。但 value 里完全可以包含换行符 —— 用户存一首诗，你的格式当场崩掉。</p>
+
+<p>用长度前缀就没有这个问题：<strong>长度是一个定长的数字，对内容完全透明。</strong>value 里有多少个 <code>\n</code>、多少个 <code>\0</code> 都不影响切分。这是所有二进制格式（Protobuf、Thrift、Parquet）的共同选择。</p>
+
+<h3>为什么 type 必须是独立字段</h3>
+
+<p>这个项目早期用 <code>value == "__DELETED__"</code> 来判断删除。想一下：如果用户真的要存 <code>"__DELETED__"</code> 这个字符串呢？</p>
+
+<p>读回来会被当成「已删除」，数据凭空消失。<strong>这不是写法问题，是格式设计问题</strong> —— 一条记录里必须有独立字段说明「这是存还是删」，而不是靠 value 的取值去猜。</p>
+
+<div class="essence">
+  <span class="tag">本质</span>
+  <p><strong>用取值去猜语义，迟早会撞上「那个取值本身也是合法数据」的那天。</strong>语义要占独立的位，不跟数据抢地方。</p>
+</div>
+
+<h3>为什么内存结构要和磁盘结构同构</h3>
+
+<p>磁盘上是 <code>[type][keylen][key][vallen][value]</code>，内存里也应该是 <code>{type, key, value}</code> 三个字段。</p>
+
+<p>如果内存里只有 <code>{key, value}</code>（type 丢了），那 <code>Load</code> 时就得把 type 压扁成一个特殊字符串 —— 每次转换都要做一次翻译，<strong>而翻译就会有信息损失</strong>。你之前那个 <code>__DELETED__</code> 的 bug，根子就是这个不同构。</p>
+
+<p>两边同构之后，来回搬不需要翻译。这看起来是小事，实际上是「格式设计是否自洽」的分水岭。</p>
+
+<h2><span class="num">05</span>三层缓冲：数据到底停在哪</h2>
+
+<p>你以为「写完文件了」，其实数据离磁盘还有两道关。</p>
+
+<table class="wrap-cell">
+  <tr><th>层</th><th>谁在管</th><th>怎么进去的</th><th>崩了会丢吗</th></tr>
+  <tr>
+    <td>① 用户态缓冲</td><td>你的进程（<code>ofstream</code> 对象内部）</td>
+    <td><code>write()</code> 只是把字节拷进来</td>
+    <td><strong>进程被杀就丢</strong></td>
+  </tr>
+  <tr>
+    <td>② 内核页缓存</td><td>操作系统</td>
+    <td><code>flush()</code> 触发真正的 <code>write(2)</code></td>
+    <td><strong>断电 / 系统崩就丢</strong></td>
+  </tr>
+  <tr>
+    <td>③ 磁盘介质</td><td>硬件</td>
+    <td><code>fsync()</code> 才推到这里</td>
+    <td>不会丢</td>
+  </tr>
+</table>
+
+<div class="essence">
+  <span class="tag">一句话分清</span>
+  <p><code>flush()</code> 挡的是「进程被 kill -9」，<code>fsync()</code> 挡的是「断电」。<strong>两者防的不是同一件事。</strong></p>
+</div>
+
+<p>为什么要缓冲？因为每次进内核都要保存现场，一个字节一个字节地写会慢几百倍。操作系统还会帮你合并、排序、减少寻道 —— 这些优化都建立在「攒一批再发」之上。</p>
+
+<p>代价就是：攒着的这段时间，数据是脆的。</p>
+
+<h3>为什么不一上来就 fsync</h3>
+
+<p>机械盘一次 <code>fsync</code> 要 5~10ms。每条写都 fsync，吞吐直接掉到几百 TPS。LevelDB 把这个做成参数（<code>sync = false</code> 是默认值），靠操作系统的刷盘策略兜底。</p>
+
+<p><strong>「性能 vs 安全」的取舍点，具体就落在这一行代码上。</strong>面试里问「你的 WAL 保证不丢吗」，标准答案是「我不保证，工业界默认也不保证，只有显式 sync 才保证」。</p>
+
+<h3>代码里哪一行对应哪一层</h3>
+
+<pre><code>std::string encoded = Encode(rec);   // ① 内存（你的堆），跟文件无关
+out_.write(...);                     // ② 内存 → ofstream 的用户态缓冲区
+out_.flush();                        // ③ 缓冲区 → 内核页缓存（发系统调用）
+entries_.push_back(rec);             // ④ 内存（你的堆）</code></pre>
+
+<div class="warn">
+  <span class="tag">这句最反直觉</span>
+  <p><strong>「写磁盘」在你的代码里没有对应的行 —— 因为那一步不在你的进程里发生。</strong>你只能「请求」它发生（flush），不能「确认」它发生（那是 fsync）。</p>
+</div>
+
+<h2><span class="num">06</span>校验：长度检查为什么不够</h2>
+
+<p>假设一块用了三年的 SSD 上，某个字节从 <code>'p'</code> 变成了 <code>'q'</code>：</p>
+
+<pre><code>磁盘上：[01][04 00 00 00]['n']['a']['m']['e'][06 00 00 00]['l']['i']['u']['q']['e']['i']
+                                                              ↑ 这个字节坏了
+Decode：长度字段全对 → 边界检查全过 → 返回 true
+你的程序：读出一个「正常」的 value —— 但内容已经错了</code></pre>
+
+<p><strong>全程没有任何一行代码报错。</strong></p>
+
+<p>你的 <code>Decode</code> 只检查「长度会不会超出缓冲区」。它保证的是<strong>结构没崩</strong>，保证不了<strong>内容没变</strong>。</p>
+
+<div class="warn">
+  <span class="tag">存储里最坏的一类错</span>
+  <p><strong>静默错误（silent corruption）</strong>：不是崩，是崩了还告诉你一切正常。用户三个月后发现数据不对，你连是哪一步坏的都查不出来。</p>
+</div>
+
+<h3>CRC32 是什么</h3>
+
+<p>给每段字节配一个<strong>指纹</strong>。写的时候算一遍存进去，读的时候重算一遍对比。相等 → 内容没被动过；不等 → 这条坏了。</p>
+
+<p>数学上：把整串字节看成一个巨大的二进制多项式，<strong>除一个固定的生成多项式，余数就是 CRC</strong>。模 2 除法里没有进位，减法和加法都等于异或 —— 所以整个算法只有 <strong>移位</strong> 和 <strong>异或</strong>，没有乘除。</p>
+
+<table>
+  <tr><th>错误类型</th><th>能否检出</th></tr>
+  <tr><td>任何 1 位错</td><td>一定检出</td></tr>
+  <tr><td>任何 2 位错</td><td>一定检出</td></tr>
+  <tr><td>长度 ≤ 32 位的连续出错</td><td>一定检出</td></tr>
+  <tr><td>其他情况</td><td>漏检概率 2⁻³² ≈ 23 亿分之一</td></tr>
+</table>
+
+<p>注意：<strong>CRC 只能检测，不能修复。</strong>发现坏了只能丢。修复要靠副本或纠删码，那是另一个量级的东西。</p>
+
+<h3>为什么和字符串哈希不一样</h3>
+
+<table>
+  <tr><th></th><th>哈希表用的 hash</th><th>CRC32</th></tr>
+  <tr><td>目的</td><td>把 key 分散到桶里</td><td>判断字节有没有被改过</td></tr>
+  <tr><td>碰撞了怎样</td><td>无所谓，桶里再比一次，只是慢一点</td><td><strong>检测失效</strong>，坏数据被当成好的</td></tr>
+  <tr><td>有没有保证</td><td>没有，靠统计经验</td><td>有数学结构，边界可证明</td></tr>
+</table>
+
+<p>所以 CRC 不能只是「随便搅一搅」，它必须是<strong>真正的余数</strong>。正因为是余数，才有上面那张表的保证。哈希函数给不出这种承诺。</p>
+
+<h3>为什么查表</h3>
+
+<p>朴素做法：每个字节做 8 轮「看最低位 → 右移 → 条件异或」。1 MB = 800 万轮。</p>
+
+<p>但<strong>一个字节只有 256 种可能</strong>。「某个字节走完 8 轮会得到什么」是固定答案，跟前面的数据无关 —— 那就预先全算出来存着。之后每个字节只需要：查一次表 + 两次异或。</p>
+
+<table>
+  <tr><th></th><th>每字节省</th><th>额外内存</th></tr>
+  <tr><td>逐位算</td><td>8 轮位运算</td><td>0</td></tr>
+  <tr><td>查表</td><td>1 次查表 + 2 次异或</td><td>1 KB</td></tr>
+</table>
+
+<div class="essence">
+  <span class="tag">原型</span>
+  <p><strong>空间换时间最经典的案例，也是你以后会反复遇到的原型。</strong>AES 的 S-box、Base64 的编码表、UTF-8 解码表、大小写转换表 —— 全是同一个套路：把「按规则算」换成「查预先算好的结果」。</p>
+</div>
+
+<h3>有一个数字要记住</h3>
+
+<p>你的实现实测 <strong>400 MB/s</strong>（8 MiB / 20 ms）。换算一下：<strong>校验 1 GB 的 WAL 要 2.5 秒。</strong></p>
+
+<p>这就是为什么真实系统不让 WAL 无限长 —— 涨到一定大小就得把内存 dump 成 SSTable，然后日志截断重开。否则重启越来越慢，最后要几分钟。</p>
+
+<div class="essence">
+  <span class="tag">因果关系</span>
+  <p><strong>SSTable 那套东西存在的第一个理由，就是这个 2.5 秒。</strong>不是为了「架构好看」，是因为不这么做启动会变得无法接受。</p>
+</div>
+
+<h2><span class="num">07</span>这套东西会长成什么</h2>
+
+<p>你现在有的只是最底层的一环。完整的 LSM 是这么长出来的 —— 每一步都在解决上一步暴露的问题，同时又引入一个新问题。</p>
+
+<table class="wrap-cell">
+  <tr><th>组件</th><th>解决什么</th><th>引入什么新问题</th></tr>
+  <tr>
+    <td>追加日志<br><span style="color:var(--ink-3);font-size:13px">你现在这里</span></td>
+    <td>不丢数据</td>
+    <td>重启要全量重放，日志越长越慢</td>
+  </tr>
+  <tr>
+    <td>MemTable<br><span style="color:var(--ink-3);font-size:13px">内存里有序的结构（跳表）</span></td>
+    <td>读不用扫全日志，内存里直接找</td>
+    <td>内存有限，装不下</td>
+  </tr>
+  <tr>
+    <td>SSTable<br><span style="color:var(--ink-3);font-size:13px">内存写满就 dump 成有序文件</span></td>
+    <td>内存腾空，日志可截断，重启只重放剩下的</td>
+    <td>文件越来越多，读要查很多个文件</td>
+  </tr>
+  <tr>
+    <td>Compaction<br><span style="color:var(--ink-3);font-size:13px">把多个 SSTable 合并</span></td>
+    <td>文件数降下来，删掉被覆盖的旧值</td>
+    <td><strong>写放大</strong> —— 合并本身要重写数据</td>
+  </tr>
+  <tr>
+    <td>Bloom Filter</td>
+    <td>查一个不存在的 key 时，不用真的去翻每个文件</td>
+    <td>多占一点内存，有一定误判率</td>
+  </tr>
+  <tr>
+    <td>Block Cache</td>
+    <td>热数据别每次都读盘</td>
+    <td>又占内存，还要做淘汰策略（LRU）</td>
+  </tr>
+</table>
+
+<div class="essence">
+  <span class="tag">整条链的本质</span>
+  <p>LSM 的每一个组件，都是在<strong>「写放大 / 读放大 / 空间放大」这个三角里换位置</strong>。没有免费的午餐，只有选哪个贵。<br>
+  你优化任何一项，另外两项几乎必然变差 —— 这就是为什么数据库有几十个可调参数。</p>
+</div>
+
+<h2><span class="num">08</span>三种放大（面试必问）</h2>
+
+<table class="wrap-cell">
+  <tr><th>名称</th><th>定义</th><th>典型来源</th></tr>
+  <tr>
+    <td><strong>写放大</strong><br>write amplification</td>
+    <td>一次逻辑写，实际导致多少次物理写</td>
+    <td>Compaction 反复重写数据。最坏情况下一条记录在每一层都被重写一遍</td>
+  </tr>
+  <tr>
+    <td><strong>读放大</strong><br>read amplification</td>
+    <td>一次逻辑读，实际要碰多少个文件 / 多少层</td>
+    <td>层数越多，一层层往下查的次数越多</td>
+  </tr>
+  <tr>
+    <td><strong>空间放大</strong><br>space amplification</td>
+    <td>磁盘占用 ÷ 实际数据量</td>
+    <td>被覆盖的旧值和墓碑还没被 Compaction 清掉</td>
+  </tr>
+</table>
+
+<p>三者此消彼长。举两个极端：</p>
+
+<ul>
+  <li><strong>层数少</strong>（比如只有 2 层）→ 读放大低（查的文件少），但每层数据多，Compaction 一次要重写的量巨大 → 写放大高</li>
+  <li><strong>层数多</strong>（比如 7 层）→ 每层数据小，Compaction 便宜 → 写放大低，但读要一层层找 → 读放大高</li>
+</ul>
+
+<p>LevelDB 默认 7 层，每层容量是上一层的 10 倍。这个「10 倍」就是调参的核心旋钮。</p>
+
+<h2><span class="num">09</span>B+ 树 vs LSM：为什么不用 MySQL 那一套</h2>
+
+<table class="wrap-cell">
+  <tr><th></th><th>B+ 树（MySQL InnoDB）</th><th>LSM 树（LevelDB / RocksDB）</th></tr>
+  <tr><td>写入方式</td><td>就地更新：找到位置，改掉</td><td>只追加：写新记录，旧的作废</td></tr>
+  <tr><td>写性能</td><td>慢（随机写 + 节点分裂）</td><td><strong>快</strong>（顺序写）</td></tr>
+  <tr><td>读性能</td><td><strong>快</strong>（一次树查找）</td><td>慢（可能要多层查）</td></tr>
+  <tr><td>空间</td><td>紧凑，无冗余</td><td>有冗余（旧版本要等合并才清）</td></tr>
+  <tr><td>适合</td><td>读多写少（订单、账务）</td><td>写多读少（日志、时序、消息、监控）</td></tr>
+</table>
+
+<p>这不是「谁更先进」，是<strong>业务形态选出来的</strong>。银行转账一天几百万笔但查询上亿次，选 B+ 树；埋点数据一天写几十亿条但很少按单条查，选 LSM。</p>
+
+<p>面试官问「为什么不用 B+ 树」，标准答法是：<em>「我的场景是写密集，B+ 树每次写都是随机 IO，在 SSD 上会触发写放大；LSM 把随机写转成顺序写，代价是读要多层查找，用 Bloom Filter 和缓存来缓解。」</em></p>
+
+<h2><span class="num">10</span>面试怎么讲（3 分钟结构）</h2>
+
+<h3>第一句：定位</h3>
+<p>「我用 C++17 从零写了一个 LSM-Tree 的 KV 存储引擎，核心是追加日志 + 有序文件，写路径全部是顺序 IO。」</p>
+<p style="color:var(--ink-2);font-size:15px">注意这句里没有一个形容词。「高性能」「优雅」这类词一个都不要，全是可被追问的空话。</p>
+
+<h3>三个技术点，每个都要能往下钻两层</h3>
+
+<ol>
+  <li><strong>只追加 + WAL</strong><br>
+  往下钻：为什么不能就地改？→ 中间态不可判定，破坏半径从「最后一条」变成「任意一条」。<br>
+  再往下：为什么顺序不能反？→ 反了要写回滚，回滚在并发下几乎必错。</li>
+
+  <li><strong>记录格式</strong><br>
+  往下钻：为什么用长度前缀不用分隔符？→ value 里可能有任意字节。<br>
+  再往下：为什么 type 要独立字段？→ 用取值猜语义，迟早撞上「那个取值本身也是合法数据」。</li>
+
+  <li><strong>CRC 校验</strong><br>
+  往下钻：长度检查为什么不够？→ 只保证结构不崩，保证不了内容没变，静默错误最致命。<br>
+  再往下：为什么查表？→ 空间换时间，1 KB 换 8 倍，而且这个模式在 AES/Base64 里到处都是。</li>
+</ol>
+
+<h3>一个数字</h3>
+<p>「CRC32 实测 400 MB/s，也就是校验 1 GB 的日志要 2.5 秒 —— 这个数字就是我后面要做 SSTable 和 Compaction 的动机。」</p>
+<p style="color:var(--ink-2);font-size:15px">能主动给出「我这个数字导致了什么设计决策」，比背十个概念有用。这是「有对比数据」和「只顾代码量」的分界线。</p>
+
+<h3>一个取舍</h3>
+<p>「LSM 的代价是读放大。我接受它，因为我的场景写远多于读；如果是读密集场景，B+ 树更合适。」</p>
+
+<div class="warn">
+  <span class="tag">面试时的红线</span>
+  <p>说不出「另一条路是什么、代价是什么」，就等于没做过。任何设计问题，<strong>先讲备选方案，再讲你为什么没选它</strong>。</p>
+</div>
+
+<h2><span class="num">11</span>术语中英对照</h2>
+
+<p>你现在的瓶颈是英文词汇，不是 C++。这一列每天抄五个，从代码里抄，不要背单词书。</p>
+
+<table class="wrap-cell">
+  <tr><th>英文</th><th>中文</th><th>在哪见过</th></tr>
+  <tr><td>append-only</td><td>只追加</td><td>整个项目的根</td></tr>
+  <tr><td>write-ahead log (WAL)</td><td>预写日志</td><td><code>wal.log</code></td></tr>
+  <tr><td>persist / durable</td><td>持久化 / 持久的</td><td>「写完就持久了」</td></tr>
+  <tr><td>flush</td><td>刷新（缓冲区 → 内核）</td><td><code>out_.flush()</code></td></tr>
+  <tr><td>fsync</td><td>同步到磁盘</td><td>还没做</td></tr>
+  <tr><td>page cache</td><td>页缓存</td><td>内核那一层</td></tr>
+  <tr><td>replay / recover</td><td>重放 / 恢复</td><td><code>Load()</code></td></tr>
+  <tr><td>tombstone</td><td>墓碑</td><td><code>kDelete</code></td></tr>
+  <tr><td>checksum</td><td>校验和</td><td>CRC32</td></tr>
+  <tr><td>silent corruption</td><td>静默错误</td><td>最坏的一类 bug</td></tr>
+  <tr><td>memtable</td><td>内存表</td><td>下一步</td></tr>
+  <tr><td>sstable</td><td>有序字符串表</td><td>下周</td></tr>
+  <tr><td>compaction</td><td>合并</td><td>再下周</td></tr>
+  <tr><td>amplification</td><td>放大</td><td>写/读/空间三种</td></tr>
+</table>
+
+<h2><span class="num">12</span>如果只能记五句话</h2>
+
+<ol class="five">
+  <li><strong>内存是副本，磁盘是原件。</strong>副本丢了重建，原件没了就是没了。所以先改原件。</li>
+  <li><strong>只追加不是选择，是前提。</strong>它保证「前缀永远有效」，而这正是重放能成立的全部原因。</li>
+  <li><strong>WAL = 先记账，再动钱。</strong>崩了照账重来。顺序反了你就得写回滚，那比重放难十倍。</li>
+  <li><strong>长度检查保结构，校验和保内容。</strong>静默错误比崩溃致命，因为崩溃你会知道。</li>
+  <li><strong>LSM 的本质是把随机写换成顺序写</strong>，代价是读变麻烦。所有的组件都在还这笔账。</li>
+</ol>
+
+<h2 style="margin-top:56px">当前进度</h2>
+
+<table class="wrap-cell">
+  <tr><th>日期</th><th>做了什么</th><th>验收数字</th></tr>
+  <tr><td>10-17</td><td>内存版日志 + 墓碑机制</td><td>删一条数据，记录数从 3 变 4</td></tr>
+  <tr><td>10-20</td><td>从零重写 <code>Encode</code> / <code>Decode</code></td><td>两条 roundtrip，consumed 19/19、13/13</td></tr>
+  <tr><td>10-21</td><td>字节第一次落盘</td><td>0→32 字节，32→64 字节（<code>ios::app</code> 生效）</td></tr>
+  <tr><td>10-23</td><td>数据第一次从磁盘回到内存</td><td><code>loaded 2</code> / <code>#1 Delete</code> / <code>NOT FOUND</code></td></tr>
+  <tr><td>10-24</td><td>重构：pair → Record，Load 返回 Status</td><td>三组验收全过</td></tr>
+  <tr><td>10-25</td><td><strong>WAL 双写</strong>：内存 + 文件</td><td><code>size()=4</code> / <code>72 bytes</code> / 重启后内容正确</td></tr>
+  <tr><td>10-26</td><td>CRC32（查表法）</td><td>4 个标准向量全 PASS，400 MB/s</td></tr>
+</table>
+
+<h3>下一步（有空再动，课设优先）</h3>
+
+<ol>
+  <li><strong>10-27 欠的</strong>：记录头加 4 字节 CRC，写时算、读时校验。手改文件里一个字节，读的时候必须报「校验失败」</li>
+  <li><strong>然后</strong>：崩溃模拟 —— 把 <code>wal.log</code> 截断到半条记录处再打开，最后那条被丢弃，前面全部完好</li>
+  <li><strong>再然后</strong>：MemTable（跳表）—— 让读不用扫全日志</li>
+</ol>
+
+<p style="color:var(--ink-2);font-size:15px">顺序不能跳。CRC 是后面所有「认出坏数据」能力的前提，没有它，崩溃模拟只能看到「解析失败」，看不到「哪一条坏了」。</p>
+
+<footer>
+  <p><strong>别为了看这份文档挤掉数学。</strong>课设、备考、这个项目，优先级从高到低就是这个顺序。项目是 B 计划，B 计划不值得动用 A 计划的时间。</p>
+  <p>闲下来翻一节，能对着空气讲一遍再走 —— 讲不出来的就是还没懂。</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跳表怎么跑起来 —— 查询与插入的逐步可视化</title>
+<style>
+  :root {
+    --ink: #23221e;
+    --ink-2: #5b5850;
+    --ink-3: #8b877c;
+    --line: #e3dfd4;
+    --bg: #fbfaf6;
+    --card: #ffffff;
+    --accent: #185fa5;
+    --accent-bg: #eaf2fa;
+    --warn: #a32d2d;
+    --warn-bg: #fcefee;
+    --key: #0f6e56;
+    --key-bg: #e8f5f0;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 0 20px 96px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.85;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  header { padding: 56px 0 32px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 27px; line-height: 1.35; margin: 0 0 14px; font-weight: 600; letter-spacing: -0.3px; }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0; }
+  .meta { color: var(--ink-3); font-size: 13px; margin-top: 18px; }
+
+  h2 { font-size: 20px; font-weight: 600; margin: 56px 0 6px; padding-top: 8px; letter-spacing: -0.2px; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; font-weight: 500; }
+  h3 { font-size: 16.5px; font-weight: 600; margin: 30px 0 8px; color: var(--ink); }
+  p { margin: 12px 0; }
+  ul, ol { margin: 12px 0; padding-left: 22px; }
+  li { margin: 7px 0; }
+  strong { font-weight: 600; }
+  em { font-style: normal; background: linear-gradient(transparent 62%, #fdedb8 62%); padding: 0 1px; }
+  a { color: var(--accent); }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 0.88em; background: #f1efe7; padding: 1.5px 5px; border-radius: 3px;
+    color: #4a4238;
+  }
+  pre {
+    background: #f6f4ed; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .essence {
+    background: var(--key-bg); border-left: 3px solid var(--key);
+    padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0;
+  }
+  .essence .tag { font-size: 12px; letter-spacing: 0.6px; color: var(--key); display: block; margin-bottom: 6px; font-weight: 600; }
+  .essence p { margin: 0; font-size: 15.5px; }
+
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .warn p { margin: 0; font-size: 15.5px; }
+  .warn .tag { font-size: 12px; color: var(--warn); font-weight: 600; display: block; margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13.5px; border-bottom: 1px solid #cdc7b8; }
+  td:first-child { white-space: nowrap; }
+  .wrap-cell td:first-child { white-space: normal; }
+
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 22px; margin: 32px 0; }
+  .toc h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: 0.5px; color: var(--ink-3); font-weight: 600; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin: 5px 0; font-size: 15px; }
+  .toc .why { color: var(--ink-3); font-size: 13.5px; }
+
+  details { margin: 12px 0; padding: 10px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+  details p { margin: 10px 0 4px; font-size: 15.5px; }
+
+  footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13.5px; }
+
+  .viz { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 24px 0; overflow: hidden; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #faf8f2; }
+  .bar .sp { flex: 1 1 auto; }
+  .bar button {
+    font: inherit; font-size: 13.5px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+  }
+  .bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .bar button:disabled { opacity: 0.4; cursor: default; }
+  .bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .bar label { font-size: 13.5px; color: var(--ink-2); }
+  .bar select { font: inherit; font-size: 13.5px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: #fff; }
+  #svgHost { padding: 10px 12px 0; }
+  #svgHost svg { display: block; width: 100%; height: auto; }
+  .lvl { font: 500 11.5px "Cascadia Mono", Consolas, monospace; fill: var(--ink-3); }
+  .nd rect { fill: #fff; stroke: #d9d4c7; stroke-width: 1; }
+  .nd text { font: 500 13px "Cascadia Mono", Consolas, monospace; fill: #4a4238; }
+  .nd.head rect { fill: #f4f1e8; }
+  .nd.head text { fill: var(--ink-3); font-size: 11.5px; }
+  .nd.p rect { stroke: var(--accent); stroke-width: 2; fill: var(--accent-bg); }
+  .nd.cand rect { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 4 3; }
+  .nd.fresh rect { stroke: var(--key); stroke-width: 2; fill: var(--key-bg); }
+  .arw { stroke: #c9c3b4; stroke-width: 1.4; }
+  .arw.on { stroke: var(--accent); stroke-width: 2.6; }
+  .lbl { padding: 8px 14px 2px; font-size: 13.5px; color: var(--ink-3); }
+  .logbox { padding: 4px 14px 16px; }
+  .log { margin: 0; padding-left: 0; list-style: none; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.8px; line-height: 1.75; }
+  .log li { margin: 2px 0; padding: 3px 8px; border-radius: 4px; color: var(--ink-2); border-left: 2px solid transparent; }
+  .log li.cur { background: #f4f1e8; color: var(--ink); }
+  .log li.adv { border-left-color: var(--key); }
+  .log li.desc { border-left-color: var(--ink-3); }
+  .log li.end { border-left-color: var(--accent); color: var(--accent); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.8px; color: var(--ink-3); padding: 2px 14px 10px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .lg-p::before { background: var(--accent-bg); border: 1.5px solid var(--accent); }
+  .lg-c::before { background: #fff; border: 1.5px dashed var(--warn); }
+  .lg-n::before { background: var(--key-bg); border: 1.5px solid var(--key); }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; padding: 0 16px 72px; }
+    h1 { font-size: 23px; }
+    h2 { font-size: 18.5px; margin-top: 44px; }
+    table { font-size: 13.5px; }
+    th, td { padding: 7px 6px; }
+    td:first-child { white-space: normal; }
+    .log { font-size: 11.8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>跳表怎么跑起来</h1>
+  <p class="sub">2026-11-04 · 你问的四件事：实现到底在实现什么 / 查询逻辑 / 怎么可视化 / demo 在干嘛<br>页面中间那块可以逐步点开，别只看结论。</p>
+  <p class="meta">数据固定为 15 个 key、最大 4 层（你的代码里是 12 层随机，这里缩到 4 层是为了画得下）</p>
+</header>
+
+<div class="toc">
+  <h3>目录</h3>
+  <ol>
+    <li>「实现跳表」到底是在实现什么 <span class="why">— 3 个不变量 + 3 个操作</span></li>
+    <li>查询逻辑 <span class="why">— 唯一的一条决策规则</span></li>
+    <li>逐步可视化 <span class="why">— 查询 / 插入，可单步可播放</span></li>
+    <li>你的 demo_skip 在干嘛 <span class="why">— 对照你贴的输出逐段解释</span></li>
+    <li>你现在手里有什么、还缺什么</li>
+    <li>自测 4 题</li>
+  </ol>
+</div>
+
+<h2><span class="num">01</span>「实现跳表」到底是在实现什么</h2>
+
+<p>你写了三件事，跑出了 PASS，但感觉不知道自己在造什么。原因是：<strong>跳表这个概念听起来像个「数据结构」，落到代码里其实是一组必须永远成立的约束。</strong></p>
+
+<p>整个跳表约 200 行，剥掉注释和辅助函数，真正的内容是<strong>三条不变量</strong>和<strong>三个操作</strong>。你写错任何一行代码，本质都是破坏了其中某一条不变量。</p>
+
+<table>
+  <thead><tr><th>不变量</th><th>含义</th><th>破坏后什么症状</th></tr></thead>
+  <tbody>
+    <tr><td>① L0 全量有序</td><td>最底层那条链表包含<strong>全部</strong>节点，且 key 严格升序</td><td>数据丢失、遍历漏记录、范围查询错</td></tr>
+    <tr><td>② 指针只能向上指</td><td>节点 <code>next[lv]</code> 指向的目标，其层数必须 <code>&gt; lv</code></td><td>查找到一半读越界 → 段错误（或读到垃圾 key）</td></tr>
+    <tr><td>③ level_ 是真实上限</td><td><code>level_</code> = 当前最高层数，所有节点层数 ≤ <code>level_</code> ≤ <code>kMaxLevel</code></td><td>从空层开始查 → 白走几层，或新节点升不到该升的层</td></tr>
+  </tbody>
+</table>
+
+<p>「实现跳表」＝ <strong>写出三个操作，并且保证每个操作跑完之后，这三条不变量依然成立。</strong></p>
+
+<table>
+  <thead><tr><th>操作</th><th>做什么</th><th>维护了哪条不变量</th></tr></thead>
+  <tbody>
+    <tr><td><code>Find</code></td><td>找到「最后一个 key &lt; target 的节点」，顺便判断 target 在不在</td><td>不改结构，只读</td></tr>
+    <tr><td><code>Insert</code></td><td>先 Find 记下每层前驱 <code>prevs[]</code>，再逐层插指针</td><td>①②③ 全都要维护（层数变高时要更新 <code>level_</code>）</td></tr>
+    <tr><td><code>Delete</code></td><td>不真删，把记录改成 <code>type = kDelete</code> 的墓碑</td><td>①（节点还在，只是值变了）</td></tr>
+  </tbody>
+</table>
+
+<div class="essence">
+  <span class="tag">关键的一句话</span>
+  <p><strong>Insert 和 Delete 都建在 Find 之上。</strong>Find 返回的那个「最后一个 key &lt; target」，正好就是新节点要挂上去的前驱。所以明天你写 Insert，会发现它 90% 的代码和 Find 一模一样，只是把每层走过的 <code>p</code> 存进 <code>prevs[]</code> 数组。</p>
+</div>
+
+<h2><span class="num">02</span>查询逻辑</h2>
+
+<p>整段查询只有一条决策规则，两个循环只是把这条规则用在不同的层上：</p>
+
+<pre><code>Node* p = head_;
+for (int lv = level_ - 1; lv &gt;= 0; --lv) {              // 外层：从上往下，一层一层降
+  while (p-&gt;next[lv] != nullptr &amp;&amp;
+         p-&gt;next[lv]-&gt;key &lt; key) {                      // 内层：右边还更小，就一直往前跳
+    p = p-&gt;next[lv];
+  }
+}
+// 走到这里，lv 已经降到 -1，p 是「最后一个 key &lt; target」的节点
+Node* cand = p-&gt;next[0];
+if (cand != nullptr &amp;&amp; cand-&gt;key == key) return 找到;</code></pre>
+
+<p><strong>决策规则（只有这一条）：</strong></p>
+
+<div class="essence">
+  <span class="tag">规则</span>
+  <p>看 <code>p-&gt;next[lv]</code> 那个节点：<strong>key 比目标小 → 跳过去，p = 它；否则（比目标大、或者根本没有）→ 降一层，p 不动。</strong></p>
+</div>
+
+<p>三个容易想歪的地方：</p>
+
+<ul>
+  <li><strong>为什么是「严格小于」而不是「小于等于」？</strong>因为要找的是「最后一个 <strong>&lt;</strong> target」的节点，这样它后面的那个才有可能是 target 本身。写成 <code>&lt;=</code> 会直接跳过目标。</li>
+  <li><strong>降层时 p 不动。</strong>降层只是换一个 <code>next</code> 下标去看更近的地方，节点本身没变。这是最容易画错的地方——很多人以为降层是「退回去」。</li>
+  <li><strong>循环结束后还要验证一步。</strong>因为循环条件是「小于」，所以 p 肯定不是 target，但 <code>p-&gt;next[0]</code> 可能是。这一步不做，就会把「不存在」当成「找到前驱」。</li>
+</ul>
+
+<p>复杂度：<code>p</code> 在整个过程中<strong>只向右移动、从不回头</strong>，所以总移动次数 ≤ 层数 + 横向次数。层数是 O(log n)，每层横向期望 O(1)，合计 O(log n)。</p>
+
+<h2><span class="num">03</span>逐步可视化</h2>
+
+<p>下面这块是实的：点「下一步」一步步走，蓝框是 <code>p</code>，红虚线框是「我正在比较的那个候选」，蓝色粗箭头是这一步实际读的那条 <code>next</code> 指针。日志里每一行都对应一次比较。</p>
+
+<div class="viz">
+  <div class="bar">
+    <button id="tabSearch" class="on">查询 Find</button>
+    <button id="tabInsert">插入 Insert</button>
+    <span class="sp"></span>
+    <label id="targetWrap">目标 <select id="target">
+      <option value="i">i</option>
+      <option value="n">n</option>
+      <option value="k">k</option>
+      <option value="e">e</option>
+    </select></label>
+    <button id="prev">上一步</button>
+    <button id="next">下一步</button>
+    <button id="play">自动播放</button>
+    <button id="reset">重置</button>
+  </div>
+  <div class="legend">
+    <span class="lg-p">p（当前节点）</span>
+    <span class="lg-c">正在比较的候选</span>
+    <span class="lg-n">新插入的节点</span>
+  </div>
+  <div id="svgHost"></div>
+  <div class="lbl" id="stepLabel">就绪</div>
+  <div class="logbox"><ol class="log" id="log"></ol></div>
+</div>
+
+<h3>怎么读这个动画</h3>
+
+<p>查询 <code>i</code> 的轨迹：页面上共 8 步 = 7 次比较 + 1 次收尾检查。<code>p</code> 只经过 4 个位置：<code>head → f → g → h</code>。第一跳从 <code>head</code> 直接落到 <code>f</code>，一步跳过了 <code>a b c d e</code> 五个节点——这就是「多层索引」省下的时间。到了 L0 之后才一格一格挪，因为下面的节点太密，上层索引帮不上忙。</p>
+
+<p>插入 <code>hh</code>（2 层）的轨迹：<strong>前半段和查询完全一样</strong>，唯一区别是每次降层时多记一笔 <code>prevs[lv] = p</code>。走完之后，<code>prevs[0]</code> 和 <code>prevs[1]</code> 就是新节点在 L0、L1 上前驱。最后一步做的是纯粹的四次指针赋值：</p>
+
+<pre><code>// 对 i = 0 .. 新节点层数-1：
+n-&gt;next[i]          = prevs[i]-&gt;next[i];   // ① 新节点接管前驱原来的后继
+prevs[i]-&gt;next[i]   = n;                  // ② 前驱改为指向新节点</code></pre>
+
+<p><strong>这两行的顺序不能反。</strong>如果先执行 ②，<code>prevs[i]-&gt;next[i]</code> 已经变成 <code>n</code> 了，第 ① 行读到的就是自己，新节点指向自己 → 链表断掉，后面的查询死循环。这类错误在双链表里叫「先断后接」，跳表的插入是同一个道理。</p>
+
+<h2><span class="num">04</span>你的 demo_skip 在干嘛</h2>
+
+<p>你贴的输出三块，各测一个东西。对照着看：</p>
+
+<table>
+  <thead><tr><th>输出段</th><th>它验证了什么</th><th>对应的代码</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>[1] Level() == 1</code><br><code>Size() == 0</code></td>
+      <td>构造函数建对了：哨兵存在、计数归零。<br>而且 <code>{ }</code> 块结束时对象析构——<strong>这一行能正常退出，就说明析构没 double delete</strong>。</td>
+      <td>`SkipList()` / `~SkipList()`</td>
+    </tr>
+    <tr>
+      <td><code>[2]</code> 12 行分布表</td>
+      <td>10 万次 <code>RandomLevel()</code> 的频率是否收敛到几何分布。这是唯一能证明「随机真的在随机」的检查。</td>
+      <td>`RandomLevel()`</td>
+    </tr>
+    <tr>
+      <td><code>[3] mean level = 1.997</code></td>
+      <td>期望值的实测。1.997 vs 理论 2.0，说明分布整体没偏。</td>
+      <td>同上，但看的是整体形状不是单层</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>为什么「非要测分布」</h3>
+
+<p>因为 <code>RandomLevel()</code> 写错的方式极其隐蔽。假如你写成 <code>return 1;</code>：</p>
+
+<ul>
+  <li>程序<strong>不会崩</strong>；</li>
+  <li>功能<strong>完全正常</strong>——所有数据都在 L0，查询照样能找到；</li>
+  <li>只是<strong>退化成普通链表，查找从 O(log n) 变成 O(n)</strong>，10 万条数据慢 20 倍以上。</li>
+</ul>
+
+<p>没有任何断言能抓住它。<strong>只有看分布</strong>——分布是一条压在 1 层上的直线，就说明随机层数名存实亡。这就是「能跑」和「对」的区别。</p>
+
+<h3>两行「对不上」的数字，其实都正常</h3>
+
+<p>你可能会疑惑第 9 层和第 12 层：</p>
+
+<table>
+  <thead><tr><th>层</th><th>实测</th><th>理论</th><th>怎么解释</th></tr></thead>
+  <tbody>
+    <tr><td>9</td><td>172</td><td>195</td><td>理论 0.195%，10 万次的标准差约 14，172 偏离 1.65σ，正常波动</td></tr>
+    <tr><td>12</td><td>57</td><td>48.8</td><td>12 是<strong>截断点</strong>，把「本来就该 ≥ 12 层」的全累积到这里了，所以它的期望是 2<sup>-11</sup> 不是 2<sup>-12</sup>。1.17σ，也在范围内</td></tr>
+  </tbody>
+</table>
+
+<p>demo 只对前 5 层做严格判定（误差 &lt; 3 个百分点），后面几层只打印不判定——因为 10 万样本摊到 0.1% 的概率上只剩 100 个样本，波动太大，硬判会经常误报。<strong>「样本量不够的地方不要下判定」是写测试的基本修养</strong>，这条以后写 benchmark 也用得上。</p>
+
+<div class="warn">
+  <span class="tag">这个 demo 没测什么（重要）</span>
+  <p>它<strong>完全没测跳表本身</strong>——没有 <code>Insert</code> 就没法测 <code>Find</code>，也就测不了「多层索引真的在跳」。它只测了「层数生成器」。<br>
+  这不是偷懒，是第 1 天确实只有这些可测。<strong>明天写完 <code>Insert</code>，才会出现第一个能验证不变量 ①②③ 的测试。</strong></p>
+</div>
+
+<h2><span class="num">05</span>你现在手里有什么、还缺什么</h2>
+
+<table>
+  <thead><tr><th>部件</th><th>状态</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>Node</code> 结构</td><td>已有</td><td>一份 key/value + 一个长度等于层数的 <code>next</code></td></tr>
+    <tr><td>head 哨兵</td><td>已有</td><td>12 层，key 为空，只当起点；不占 <code>size_</code></td></tr>
+    <tr><td>层数生成</td><td>已完成</td><td>几何分布，实测 mean 1.997</td></tr>
+    <tr><td><code>Insert</code></td><td>缺（11-04 今天）</td><td>Find + <code>prevs[]</code> + 逐层插指针 + 可能更新 <code>level_</code></td></tr>
+    <tr><td><code>Find</code></td><td>缺（11-05）</td><td>Insert 会先带着写一遍，之后单独抽成公开方法</td></tr>
+    <tr><td><code>Delete</code></td><td>缺（11-06）</td><td>写墓碑 <code>kDelete</code>，不真删节点</td></tr>
+    <tr><td>迭代器 / 有序遍历</td><td>缺（Week 4）</td><td>MemTable 落盘要按 key 顺序扫一遍，沿 <code>next[0]</code> 走</td></tr>
+  </tbody>
+</table>
+
+<div class="essence">
+  <span class="tag">所以「实现跳表」还剩多少</span>
+  <p>你已经完成了最反直觉的那部分（层数随机 + 哨兵 + 内存管理）。剩下的三个操作<strong>骨架是同一个</strong>：都是「从 head 出发，右小则进、右大则降」。Insert 只是多记一本账，Delete 只是多写一个值。<strong>写完 Insert，另外两个基本就是抄自己。</strong></p>
+</div>
+
+<h2><span class="num">06</span>自测 4 题</h2>
+
+<details>
+  <summary>1. 查询时为什么判断用 <code>&lt;</code> 而不用 <code>&lt;=</code>？换成 <code>&lt;=</code> 会在哪种 key 上出错？</summary>
+  <p>因为要停在「最后一个 <strong>严格小于</strong> target」的节点上，它右边才有可能是 target。用 <code>&lt;=</code> 的话，查到 target 本身时会继续往前跳过它，最后停在 target 之后一个节点上，然后 <code>p-&gt;next[0]</code> 已经越过目标，永远返回「不存在」。<strong>所有命中查询都会失败。</strong></p>
+</details>
+
+<details>
+  <summary>2. 插入时 <code>prevs[i]</code> 存的是什么？为什么要每层存一个，而不是只存 L0 的？</summary>
+  <p>存的是「第 i 层上，最后一个 key 小于新 key 的节点」。因为新节点有若干层，<strong>每一层的邻居都不一样</strong>——同一层的前驱在 L1 可能是 <code>f</code>，在 L0 可能是 <code>h</code>。只存 L0 的话，往上那几层找不到该插在哪，要么插错位置破坏有序性，要么放弃上层索引。</p>
+</details>
+
+<details>
+  <summary>3. 插入那两行赋值，为什么必须先 <code>n-&gt;next[i] = prevs[i]-&gt;next[i]</code> 再 <code>prevs[i]-&gt;next[i] = n</code>？</summary>
+  <p>反过来的话，第一步就把 <code>prevs[i]-&gt;next[i]</code> 改成了 <code>n</code>，第二步再执行 <code>n-&gt;next[i] = prevs[i]-&gt;next[i]</code> 读到的就是 <code>n</code> 自己 → 新节点指向自己，链表在这里断成一个自环。后续查找到这就死循环。本质是<strong>覆盖之前必须先把旧值读出来</strong>，和析构时「先存 next 再 delete」是同一种错误。</p>
+</details>
+
+<details>
+  <summary>4. 如果 <code>RandomLevel()</code> 永远返回 1，程序会崩吗？会慢多少？怎么发现？</summary>
+  <p>不会崩，也不会功能出错——数据全在 L0，查询照常命中。但失去了多层索引，查询退化为遍历单链表：n 条数据从 O(log n) 变成 O(n)。10 万条大概慢 20~30 倍。<strong>发现方式只有统计分布</strong>：测出的均值会贴在 1.0 上，而不是 2.0。任何断言都抓不住它，因为每一步的结果都是「正确」的。</p>
+</details>
+
+<footer>
+  D:\code\lsm-kv\docs\07-跳表可视化.html · 生成于 2026-11-04<br>
+  页面里的 15 个 key 和层数都是硬编码的，为了每次打开都长得一样。你的代码里层数由 <code>RandomLevel()</code> 现场决定。
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var MAXC = 4;
+  var TOP = 34, ROW = 50, NW = 40, NH = 36, GAP = 10, HEADW = 56, X0 = 44;
+  var BOT = TOP + (MAXC - 1) * ROW + NH;
+
+  var LIST = [['a', 1], ['b', 1], ['c', 2], ['d', 1], ['e', 1], ['f', 3], ['g', 1],
+              ['h', 1], ['i', 2], ['j', 1], ['k', 4], ['l', 1], ['m', 2], ['n', 1], ['o', 1]];
+
+  function layout(list) {
+    var x = X0;
+    var head = { key: 'head', lv: MAXC, x: x, w: HEADW };
+    x += HEADW + 16;
+    var nodes = [];
+    for (var i = 0; i < list.length; ++i) {
+      nodes.push({ key: list[i][0], lv: list[i][1], x: x, w: NW });
+      x += NW + GAP;
+    }
+    return { head: head, nodes: nodes, width: x + 26 };
+  }
+
+  var model = layout(LIST);
+
+  var INS_KEY = 'hh', INS_LV = 2, INS_POS = 0;
+  for (var q = 0; q < LIST.length; ++q) if (LIST[q][0] < INS_KEY) INS_POS = q + 1;
+  var LIST2 = LIST.slice();
+  LIST2.splice(INS_POS, 0, [INS_KEY, INS_LV]);
+  var model2 = layout(LIST2);
+
+  function rowY(lv) { return TOP + (MAXC - 1 - lv) * ROW; }
+
+  function nextAt(nodes, idx, lv) {
+    for (var j = idx + 1; j < nodes.length; ++j) if (nodes[j].lv > lv) return j;
+    return -1;
+  }
+
+  function keyOf(nodes, idx) { return idx < 0 ? 'head' : nodes[idx].key; }
+
+  function draw(m, hl) {
+    hl = hl || {};
+    var all = [m.head].concat(m.nodes);
+    var H = BOT + 44;
+    var s = '<svg viewBox="0 0 ' + m.width + ' ' + H + '" width="100%" xmlns="http://www.w3.org/2000/svg">';
+    s += '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">';
+    s += '<path d="M2 1L8 5L2 9" fill="none" stroke="#8b877c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>';
+
+    for (var lv = MAXC - 1; lv >= 0; --lv) {
+      s += '<text class="lvl" x="' + (X0 - 12) + '" y="' + (rowY(lv) + NH / 2) +
+           '" text-anchor="end" dominant-baseline="central">L' + lv + '</text>';
+    }
+
+    for (var L = 0; L < MAXC; ++L) {
+      for (var i = 0; i < all.length; ++i) {
+        var a = all[i];
+        if (a.lv <= L) continue;
+        var b = null;
+        for (var j = i + 1; j < all.length; ++j) if (all[j].lv > L) { b = all[j]; break; }
+        if (!b) continue;
+        var id = 'a-' + L + '-' + a.key;
+        var on = hl.arrows && hl.arrows.indexOf(id) >= 0;
+        var y = rowY(L) + NH / 2;
+        s += '<line id="' + id + '" class="arw' + (on ? ' on' : '') + '" x1="' + (a.x + a.w) +
+             '" y1="' + y + '" x2="' + (b.x - 3) + '" y2="' + y + '" marker-end="url(#ah)"/>';
+      }
+    }
+
+    for (var k = 0; k < all.length; ++k) {
+      var n = all[k];
+      var y2 = rowY(n.lv - 1);
+      var h2 = BOT - y2;
+      var cls = 'nd';
+      if (n.key === 'head') cls += ' head';
+      if (hl.p === k - 1) cls += ' p';
+      if (hl.cand === k - 1) cls += ' cand';
+      if (hl.newKey && hl.newKey === n.key) cls += ' fresh';
+      s += '<g class="' + cls + '"><rect x="' + n.x + '" y="' + y2 + '" width="' + n.w +
+           '" height="' + h2 + '" rx="7"/>';
+      s += '<text x="' + (n.x + n.w / 2) + '" y="' + (BOT - NH / 2) +
+           '" text-anchor="middle" dominant-baseline="central">' + n.key + '</text></g>';
+    }
+
+    s += '</svg>';
+    return s;
+  }
+
+  function walk(nodes, target, recordPrevs) {
+    var steps = [], prevs = {};
+    var idx = -1, lv = MAXC - 1;
+    while (lv >= 0) {
+      var j = nextAt(nodes, idx, lv);
+      var ck = j >= 0 ? nodes[j].key : null;
+      if (j >= 0 && ck < target) {
+        steps.push({ kind: 'adv', lv: lv, from: idx, to: j,
+          text: 'L' + lv + '  p 右边是 "' + ck + '"  (' + ck + ' < ' + target + ')  前进 → p = "' + ck + '"' });
+        idx = j;
+      } else {
+        prevs[lv] = idx;
+        steps.push({ kind: 'desc', lv: lv, from: idx, cand: j,
+          text: 'L' + lv + '  ' + (j < 0 ? 'p 右边是 null' : 'p 右边是 "' + ck + '"  不小于 ' + target) +
+                '  降一层' + (recordPrevs ? '（记 prevs[' + lv + '] = "' + keyOf(nodes, idx) + '"）' : '') });
+        lv--;
+      }
+    }
+    return { steps: steps, idx: idx, prevs: prevs };
+  }
+
+  function searchSteps(nodes, target) {
+    var r = walk(nodes, target, false);
+    var j = nextAt(nodes, r.idx, 0);
+    var hit = (j >= 0 && nodes[j].key === target);
+    r.steps.push({ kind: 'end', from: r.idx, cand: j, hit: hit,
+      text: hit ? '结束  p = "' + keyOf(nodes, r.idx) + '"，p->next[0] = "' + target + '"  命中'
+                : '结束  p->next[0] ' + (j < 0 ? '是 null' : '是 "' + nodes[j].key + '"') +
+                  ' ≠ "' + target + '"  不存在' });
+    return r.steps;
+  }
+
+  function insertSteps(nodes) {
+    var r = walk(nodes, INS_KEY, true);
+    var arr = [];
+    for (var lv = 0; lv < INS_LV; ++lv) {
+      var pk = keyOf(nodes, r.prevs[lv]);
+      arr.push('a-' + lv + '-' + pk);
+      arr.push('a-' + lv + '-' + INS_KEY);
+    }
+    r.steps.push({ kind: 'insert', arrows: arr,
+      text: '插入  prevs[0] = "' + keyOf(nodes, r.prevs[0]) + '"，prevs[1] = "' + keyOf(nodes, r.prevs[1]) +
+            '"  挂 ' + INS_LV + ' 层指针' });
+    return r.steps;
+  }
+
+  function hlOf(nodes, st) {
+    if (st.kind === 'adv') {
+      return { p: st.from, cand: st.to, arrows: ['a-' + st.lv + '-' + keyOf(nodes, st.from)] };
+    }
+    if (st.kind === 'desc') {
+      var arr = st.cand >= 0 ? ['a-' + st.lv + '-' + keyOf(nodes, st.from)] : [];
+      return { p: st.from, cand: st.cand, arrows: arr };
+    }
+    return { p: st.from, cand: st.cand, arrows: ['a-0-' + keyOf(nodes, st.from)] };
+  }
+
+  var host = document.getElementById('svgHost');
+  var logEl = document.getElementById('log');
+  var labelEl = document.getElementById('stepLabel');
+  var prevBtn = document.getElementById('prev');
+  var nextBtn = document.getElementById('next');
+  var playBtn = document.getElementById('play');
+  var searchTab = document.getElementById('tabSearch');
+  var insertTab = document.getElementById('tabInsert');
+  var targetWrap = document.getElementById('targetWrap');
+  var targetSel = document.getElementById('target');
+
+  var mode = 'search', steps = [], cursor = -1, timer = null;
+
+  function stopPlay() {
+    if (timer) { clearInterval(timer); timer = null; playBtn.textContent = '自动播放'; }
+  }
+
+  function render() {
+    var m = model, hl = {};
+    var lastInsert = (mode === 'insert' && steps.length > 0 && cursor >= steps.length - 1);
+    if (lastInsert) {
+      m = model2;
+      hl = { newKey: INS_KEY, arrows: steps[steps.length - 1].arrows };
+    } else if (cursor >= 0 && cursor < steps.length) {
+      hl = hlOf(m.nodes, steps[cursor]);
+    }
+
+    host.innerHTML = draw(m, hl);
+
+    var html = '';
+    for (var i = 0; i <= cursor && i < steps.length; ++i) {
+      var st = steps[i];
+      var cls = st.kind + (i === cursor ? ' cur' : '');
+      html += '<li class="' + cls + '">' + st.text + '</li>';
+    }
+    logEl.innerHTML = html;
+
+    labelEl.textContent = cursor < 0
+      ? '就绪 · 共 ' + steps.length + ' 步，点「下一步」开始'
+      : '第 ' + (cursor + 1) + ' / ' + steps.length + ' 步';
+
+    prevBtn.disabled = cursor < 0;
+    nextBtn.disabled = cursor >= steps.length - 1;
+  }
+
+  function rebuild() {
+    stopPlay();
+    cursor = -1;
+    if (mode === 'search') steps = searchSteps(model.nodes, targetSel.value);
+    else steps = insertSteps(model.nodes);
+    render();
+  }
+
+  function setMode(m) {
+    mode = m;
+    searchTab.className = m === 'search' ? 'on' : '';
+    insertTab.className = m === 'insert' ? 'on' : '';
+    targetWrap.style.display = m === 'search' ? '' : 'none';
+    rebuild();
+  }
+
+  searchTab.onclick = function () { setMode('search'); };
+  insertTab.onclick = function () { setMode('insert'); };
+  targetSel.onchange = function () { rebuild(); };
+  prevBtn.onclick = function () { if (cursor >= 0) { cursor--; render(); } };
+  nextBtn.onclick = function () { if (cursor < steps.length - 1) { cursor++; render(); } };
+  document.getElementById('reset').onclick = function () { rebuild(); };
+
+  playBtn.onclick = function () {
+    if (timer) { stopPlay(); return; }
+    if (cursor >= steps.length - 1) { cursor = -1; }
+    playBtn.textContent = '暂停';
+    timer = setInterval(function () {
+      if (cursor >= steps.length - 1) { stopPlay(); return; }
+      cursor++;
+      render();
+    }, 780);
+  };
+
+  setMode('search');
+})();
+</script>
+
+</body>
+</html>

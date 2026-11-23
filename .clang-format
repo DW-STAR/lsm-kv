@@ -1,0 +1,25 @@
+---
+# 这个项目统一用 Google 风格（因为 LevelDB 就是 Google 出的）
+# 想改成 4 空格：把下面两个 2 改成 4，然后在 VS Code 里 Shift+Alt+F 全文格式化
+Language: Cpp
+BasedOnStyle: Google
+
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 4
+
+ColumnLimit: 80
+AccessModifierOffset: -1
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+SortIncludes: true
+IncludeBlocks: Preserve
+...

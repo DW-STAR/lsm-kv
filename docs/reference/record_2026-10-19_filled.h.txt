@@ -1,0 +1,105 @@
+// ══════════════════════════════════════════════════════════════
+//  归档：这是 2026-10-19 你自己写出来的版本（Encode + Decode 都能通过往返测试）。
+//
+//  为什么要归档：
+//    2026-10-20 你主动要求「不能依葫芦画瓢，要自己一步一步写」。
+//    所以 record.h 已经清空成空白起点，由你从零重写一遍。
+//
+//  ★ 重写完成、并且两条 roundtrip 都 PASS 之后，才能打开这个文件对比。
+//    在那之前看它，等于把这次练习作废。
+//
+//  重写完之后，重点看这几处差异（不是看"谁写得短"）：
+//    1. 五段字段的顺序 —— 你记住了吗？
+//    2. Decode 里每个 `if (p + n > limit)` 边界检查 —— 一个都没漏吗？
+//    3. `p += klen` 这种"挪游标"的动作 —— 每段都做了吗？
+//    4. 类型那一段 —— 你知道怎么把 1 个字节变成 RecordType 吗？
+// ══════════════════════════════════════════════════════════════
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <string>
+
+namespace lsmkv {
+
+enum class RecordType : uint8_t {
+  kPut = 1,
+  kDelete = 2,
+};
+
+struct Record {
+  RecordType type = RecordType::kPut;
+  std::string key;
+  std::string value;
+};
+
+inline void PutFixed32(std::string* dst, uint32_t v) {
+  char buf[4];
+  std::memcpy(buf, &v, 4);
+  dst->append(buf, 4);
+}
+
+inline uint32_t GetFixed32(const char** p, const char* limit) {
+  if (*p + 4 > limit) {
+    return 0;
+  }
+  uint32_t v;
+  std::memcpy(&v, *p, 4);
+  *p += 4;
+  return v;
+}
+
+// ── 你自己写的 Encode ──
+inline std::string Encode(const Record& record) {
+  std::string out;
+
+  out.push_back(static_cast<char>(record.type));
+  PutFixed32(&out, record.key.size());
+  out.append(record.key);
+  PutFixed32(&out, record.value.size());
+  out.append(record.value);
+
+  return out;
+}
+
+// ── 你自己写的 Decode（前两步是我给的范例，后三步你补的）──
+inline bool Decode(const std::string& buf, Record* out, size_t* consumed) {
+  const char* p = buf.data();
+  const char* limit = buf.data() + buf.size();
+
+  if (p >= limit) {
+    return false;
+  }
+  out->type = static_cast<RecordType>(*p);
+  ++p;
+
+  if (p + 4 > limit) {
+    return false;
+  }
+  const uint32_t klen = GetFixed32(&p, limit);
+
+  if (p + klen > limit) {
+    return false;
+  }
+  out->key.assign(p, klen);
+  p += klen;
+
+  if (p + 4 > limit) {
+    return false;
+  }
+  const uint32_t vlen = GetFixed32(&p, limit);
+
+  if (p + vlen > limit) {
+    return false;
+  }
+  out->value.assign(p, vlen);
+  p += vlen;
+
+  if (consumed != nullptr) {
+    *consumed = static_cast<size_t>(p - buf.data());
+  }
+  return true;
+}
+
+}  // namespace lsmkv

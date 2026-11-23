@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lsm-kv · 接下来做什么</title>
+<style>
+  :root {
+    --bg: #FAFAF7;
+    --card: #FFFFFF;
+    --line: #E7E5DF;
+    --ink: #1C1C1A;
+    --ink2: #5F5E5A;
+    --ink3: #8E8C86;
+    --accent: #B45309;
+    --accent-bg: #FDF6EC;
+    --accent-line: #EFD9B8;
+    --done: #3B6D11;
+    --done-bg: #F0F6E8;
+    --done-line: #D3E3BE;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 15px;
+    line-height: 1.78;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 56px 28px 100px; }
+
+  header { border-bottom: 1px solid var(--line); padding-bottom: 32px; margin-bottom: 40px; }
+  .kicker { font-size: 12px; letter-spacing: .14em; color: var(--ink3); text-transform: uppercase; margin: 0 0 14px; }
+  h1 { font-size: 30px; line-height: 1.35; font-weight: 500; margin: 0 0 16px; letter-spacing: -0.01em; }
+  .lede { font-size: 16px; color: var(--ink2); margin: 0; max-width: 620px; }
+
+  .progress { display: flex; gap: 6px; margin-top: 30px; }
+  .progress i { height: 4px; flex: 1; border-radius: 2px; background: var(--line); }
+  .progress i.on { background: var(--done); }
+  .progress i.now { background: var(--accent); }
+  .progress-label { margin-top: 10px; font-size: 12px; color: var(--ink3); }
+
+  nav { margin: 0 0 48px; font-size: 13px; }
+  nav a { color: var(--ink2); text-decoration: none; margin-right: 18px; border-bottom: 1px solid transparent; padding-bottom: 2px; }
+  nav a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  section { margin: 0 0 56px; }
+  h2 { font-size: 19px; font-weight: 500; margin: 0 0 8px; letter-spacing: -0.005em; }
+  h2 .num { color: var(--ink3); font-size: 13px; font-weight: 400; margin-right: 10px; letter-spacing: .06em; }
+  .sub { color: var(--ink3); font-size: 13px; margin: 0 0 22px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 16px; }
+  .stat b { display: block; font-size: 24px; font-weight: 500; line-height: 1.2; margin-bottom: 4px; }
+  .stat span { font-size: 12px; color: var(--ink3); }
+
+  .stages { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
+  .stage { background: var(--card); border: 1px solid var(--line); border-top-width: 3px; border-radius: 8px; padding: 12px 10px 12px; }
+  .stage.done { border-top-color: var(--done); }
+  .stage.now  { border-top-color: var(--accent); background: var(--accent-bg); }
+  .stage b { display: block; font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+  .stage span { font-size: 11px; color: var(--ink3); line-height: 1.4; display: block; }
+  .stage.now b { color: var(--accent); }
+  .stage.now span { color: #8A5A22; }
+  .legend { font-size: 12px; color: var(--ink3); }
+
+  .task {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px 24px 20px; margin-bottom: 14px;
+  }
+  .task.primary { border-color: var(--accent-line); box-shadow: inset 3px 0 0 var(--accent); }
+  .task-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .task-tag {
+    font-size: 11px; letter-spacing: .08em; padding: 2px 8px; border-radius: 4px;
+    background: #F2F1EC; color: var(--ink3); white-space: nowrap;
+  }
+  .task.primary .task-tag { background: var(--accent); color: #fff; }
+  .task h3 { font-size: 16px; font-weight: 500; margin: 0; flex: 1; }
+  .task .why { color: var(--ink2); font-size: 14px; margin: 0 0 14px; }
+  .task ol, .task ul { margin: 0 0 14px; padding-left: 22px; font-size: 14px; }
+  .task li { margin-bottom: 6px; }
+  .task li code, p code, li code {
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px;
+    background: #F4F3EF; padding: 1px 5px; border-radius: 3px; color: #3A3A36;
+  }
+  .callout {
+    background: var(--accent-bg); border-left: 2px solid var(--accent);
+    padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 13.5px; color: #6B4412;
+    margin: 0 0 14px;
+  }
+  .check { font-size: 13px; color: var(--ink3); margin: 0; }
+  .check b { color: var(--ink2); font-weight: 500; }
+
+  details { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--accent); list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  details .body { padding-top: 10px; font-size: 13.5px; color: var(--ink2); }
+  details .body p { margin: 0 0 8px; }
+
+  .story { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .story h3 { font-size: 14px; font-weight: 500; margin: 22px 0 8px; color: var(--ink2); }
+  .story h3:first-child { margin-top: 0; }
+  .quote {
+    border-left: 2px solid var(--line); padding: 2px 0 2px 16px; margin: 0 0 10px;
+    color: var(--ink); font-size: 14.5px;
+  }
+  .qa { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; font-size: 13.5px; color: var(--ink2); }
+  .qa div { padding: 5px 0; border-bottom: 1px dashed #EDEBE5; }
+
+  .timeline { display: grid; gap: 14px; }
+  .phase { display: grid; grid-template-columns: 108px 1fr; gap: 18px; align-items: start; }
+  .phase-when { font-size: 12px; color: var(--ink3); padding-top: 3px; line-height: 1.5; }
+  .phase-what { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+  .phase-what b { font-size: 14px; font-weight: 500; display: block; margin-bottom: 4px; }
+  .phase-what span { font-size: 13px; color: var(--ink2); }
+
+  footer { border-top: 1px solid var(--line); padding-top: 24px; color: var(--ink3); font-size: 13px; }
+  footer p { margin: 0 0 8px; }
+
+  @media (max-width: 700px) {
+    .stats { grid-template-columns: 1fr; }
+    .stages { grid-template-columns: repeat(2, 1fr); }
+    .qa { grid-template-columns: 1fr; }
+    .phase { grid-template-columns: 1fr; gap: 6px; }
+    .wrap { padding: 36px 20px 80px; }
+    h1 { font-size: 24px; }
+  }
+  @media print {
+    body { background: #fff; }
+    nav, summary { display: none; }
+    details { display: block; }
+    .task, .story, .stat, .phase-what { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="kicker">lsm-kv · 2026-11-23</p>
+  <h1>接下来做什么</h1>
+  <p class="lede">
+    这个项目已经走完了三分之二，剩下的部分是可选的。这份文档只回答一件事：<b>下一件事是哪一件</b>。
+    不用一次读完，也不用今天读。
+  </p>
+  <div class="progress">
+    <i class="on"></i><i class="on"></i><i class="on"></i><i class="now"></i><i></i><i></i>
+  </div>
+  <p class="progress-label">六个阶段：三个已完成 · 一个待接线 · 两个可选</p>
+</header>
+
+<nav>
+  <a href="#where">你现在在哪</a>
+  <a href="#map">全局地图</a>
+  <a href="#next">接下来四件事</a>
+  <a href="#story">面试怎么讲</a>
+  <a href="#time">时间线</a>
+</nav>
+
+<section id="where">
+  <h2><span class="num">01</span>你现在在哪</h2>
+  <p class="sub">不吹也不贬，这是账面上真实存在的东西。</p>
+
+  <div class="stats">
+    <div class="stat"><b>7,853</b><span>行 C++（含注释）</span></div>
+    <div class="stat"><b>17</b><span>个可执行验收程序</span></div>
+    <div class="stat"><b>0</b><span>个未通过的检查</span></div>
+  </div>
+
+  <p>
+    从 10 月中旬到现在，你从「一个 <code>std::map</code> 装的假 KV」做到了
+    「写完数据、<code>delete db</code>、进程退出、重新打开，8000 条里有 6857 条活着回来，
+    1143 条删掉的没有复活」。中间踩过的两个坑 —— 墓碑复活、忘了写析构函数 —— 
+    恰好是这类系统最典型的两类错误。
+  </p>
+  <p>
+    这不是「跟着教程抄了一遍」。教程不会告诉你
+    <code>Get</code> 为什么不能返回 <code>Status</code>，也不会告诉你
+    <code>l + r &gt;&gt; 1</code> 里 <code>+</code> 的优先级比 <code>&gt;&gt;</code> 高。
+    你是自己撞上去的。
+  </p>
+</section>
+
+<section id="map">
+  <h2><span class="num">02</span>全局地图</h2>
+  <p class="sub">六个阶段，一条线。你在第四格的入口。</p>
+
+  <div class="stages">
+    <div class="stage done"><b>01 地基</b><span>记录格式<br>CRC<br>跳表</span></div>
+    <div class="stage done"><b>02 内存</b><span>MemTable<br>冻结<br>三态</span></div>
+    <div class="stage done"><b>03 磁盘</b><span>SSTable<br>索引二分<br>接到 DB</span></div>
+    <div class="stage now"><b>04 崩溃安全</b><span>DB 接 WAL<br>重放<br>清日志</span></div>
+    <div class="stage"><b>05 空间并发</b><span>compaction<br>后台线程<br>bloom</span></div>
+    <div class="stage"><b>06 能讲</b><span>benchmark<br>README<br>叙事</span></div>
+  </div>
+  <p class="legend">
+    前三个阶段是把「数据写下去、读回来」跑通；第四阶段是把「进程被 kill 也不丢」跑通；
+    五六两个阶段决定这个项目在简历上是「一行字」还是「能聊四十分钟」。
+  </p>
+</section>
+
+<section id="next">
+  <h2><span class="num">03</span>接下来四件事</h2>
+  <p class="sub">按顺序做，不要并行。每件事都能独立收尾、独立验收。</p>
+
+  <div class="task primary">
+    <div class="task-head">
+      <span class="task-tag">下一步 · 1 个晚上</span>
+      <h3>A. 把 WAL 接进 DB</h3>
+    </div>
+    <p class="why">
+      这是唯一一件「组件已经写完、只是没接线」的事。收益最大、风险最小、见效最快。
+      做完之后，你的系统才第一次满足存储引擎的及格线：<b>进程被 kill -9，数据还在。</b>
+      现在不满足 —— 现在靠 <code>~LSMDB()</code> 里强行刷盘，那是走运，不是设计。
+    </p>
+    <ol>
+      <li><code>LSMDB</code> 加一个 <code>std::unique_ptr&lt;AppendOnlyLog&gt; wal_</code></li>
+      <li><code>DB::Open</code> 时打开 <code>wal.log</code>，把里面的记录<b>重放</b>进 MemTable</li>
+      <li><code>Put</code> / <code>Delete</code> 改成：先 <code>wal_-&gt;Append(record)</code>，再写内存</li>
+      <li>刷盘成功之后，<b>清空 WAL</b></li>
+      <li>删掉 <code>~LSMDB()</code> 里那段强行刷盘</li>
+    </ol>
+    <div class="callout">
+      第 4 步是唯一需要想清楚的地方：<b>什么时候可以安全地扔掉日志？</b>
+      答案只有一句 —— 当这批数据已经落到别的地方了。想不清就会写成
+      「日志清早了 = 丢数据」或者「从不清 = 磁盘被日志撑爆」。这两个错误都真实存在。
+    </div>
+    <p class="check"><b>验收：</b>写一半 <code>kill</code> 掉进程，重启后数据还在；再跑一次正常的 <code>demo_restart</code>，结果不变。</p>
+    <details>
+      <summary>完成之后你能回答什么</summary>
+      <div class="body">
+        <p>「一次 Put 请求按什么顺序落盘，为什么不能反过来？」</p>
+        <p>「WAL 会不会无限增长？什么时候能清？」</p>
+        <p>「fsync 的代价有多大，能不能等到一批再 fsync？」（后者叫 group commit，LevelDB 就有）</p>
+      </div>
+    </details>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <span class="task-tag">考研后 · 2–3 个晚上</span>
+      <h3>B. compaction</h3>
+    </div>
+    <p class="why">
+      现在 <code>.sst</code> 只增不减：每刷一次盘多一个文件，<code>Get</code> 要挨个扫，
+      删掉的 key 占的空间永远不回收。跑久了会变成「20 个文件扫 20 次」。
+    </p>
+    <ol>
+      <li>挑相邻的两三个文件</li>
+      <li>归并读出来：同一个 key 谁新谁赢，用归并而不是全量排序</li>
+      <li>写成新的 <code>.sst</code>，删掉旧文件</li>
+    </ol>
+    <div class="callout">
+      唯一的陷阱：<b>墓碑不能随便丢。</b>只有当「更老的层里确定没有这个 key」时，
+      墓碑才可以被扔掉。丢早了，下面那层的旧值立刻复活 —— 你已经踩过一次这个坑了，
+      这次它会以「跨文件」的形式再来一次。
+    </div>
+    <p class="check"><b>验收：</b>合并前后所有 key 的 Get 结果逐条一致；文件数从 N 降到 1 到 2 个。</p>
+    <details>
+      <summary>完成之后你能回答什么</summary>
+      <div class="body">
+        <p>「读放大、写放大、空间放大分别是什么，compaction 在换什么？」</p>
+        <p>「 leveled 和 tiered 有什么区别？RocksDB 为什么两个都留着？」</p>
+      </div>
+    </details>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <span class="task-tag">考研后 · 2–3 个晚上</span>
+      <h3>C. 后台刷盘线程</h3>
+    </div>
+    <p class="why">
+      现在 <code>FlushImmutable()</code> 是在 <code>Put</code> 里同步调的：
+      写满一张表的那一刻，这个写请求要等文件写完才返回。
+      真实引擎不让写等刷盘 —— 这正是当初设计 immutable 的原因，现在还没兑现。
+    </p>
+    <ol>
+      <li>一个后台线程 + 一个待刷队列（或直接用 <code>immutable_</code> 当队列）</li>
+      <li>主线程 <code>Rotate</code> 完就返回，后台线程接手刷</li>
+      <li>刷不过来时怎么办：堵住写（write stall）还是继续收（内存涨）—— 二选一，说清理由</li>
+    </ol>
+    <p class="check"><b>验收：</b>刷盘期间持续 Put，观察单次 Put 的延迟没有出现尖刺。</p>
+    <details>
+      <summary>完成之后你能回答什么</summary>
+      <div class="body">
+        <p>「flush 会阻塞写入吗？」「背压怎么设计？」</p>
+        <p>「为什么是 unique_ptr 而不是 shared_ptr？」（这道题你已经答过一遍了）</p>
+      </div>
+    </details>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <span class="task-tag">考研后 · 1 个晚上</span>
+      <h3>D. 一组能信的性能数字</h3>
+    </div>
+    <p class="why">
+      现在 <code>demo_sstable</code> 的第 [6] 项跑出来是「40000 条比 5000 条快 4 倍」。
+      断言通过了，但这个数字什么都没证明 —— 先跑的那组是冷的，后跑的在 CPU 缓存里。
+      <b>测试通过 ≠ 测对了。</b>
+    </p>
+    <ol>
+      <li>每组先跑一轮热身，丢弃结果</li>
+      <li>两组交替跑 5 次，取中位数而不是单次</li>
+      <li>固定数据集和随机种子，报告 P50 / P99 而不只是均值</li>
+    </ol>
+    <p class="check"><b>验收：</b>连跑三遍，数字波动在 ±10% 以内。</p>
+    <details>
+      <summary>完成之后你能回答什么</summary>
+      <div class="body">
+        <p>「你怎么证明它快？」—— 有数字、有方法、知道自己的数字哪里不可信，比数字好看更有说服力。</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section id="story">
+  <h2><span class="num">04</span>面试怎么讲</h2>
+  <p class="sub">项目做完不等于能讲。这一段现在就可以背下来。</p>
+
+  <div class="story">
+    <h3>三十秒版（简历上写的就是这段）</h3>
+    <p class="quote">
+      用 C++17 从零实现了一个 LSM-Tree 存储引擎：WAL 保证崩溃不丢数据，
+      跳表做内存表，SSTable 带稀疏索引和二分查找，写入按 WAL → 内存表 → 冻结 → 落盘的路径走，
+      把随机写转换成顺序写。附带 17 个可执行验收程序，覆盖崩溃恢复、墓碑语义和随机对拍。
+    </p>
+
+    <h3>三分钟版（讲两条路径 + 一个 bug）</h3>
+    <p class="quote">
+      写：先 append 到 WAL 并 fsync，再写跳表；写满就冻结成 immutable，换一张新表继续收写入，
+      后台把冻结表刷成 SSTable，刷完才敢清 WAL。<br><br>
+      读：先查 active，再查 immutable，都是三态结果（有值 / 墓碑 / 没有）；
+      只要命中值或墓碑就停手，只有「没有」才往下查磁盘，磁盘从新到旧，墓碑同样终结。<br><br>
+      踩过的坑：一开始我把内存查找的返回值收成 <code>Status</code>，只有成功和失败两态，
+      结果「内存里有墓碑」和「内存里没有」变成了同一个值，去查磁盘时把删掉的数据读了回来。
+      这个 bug 不崩、不报错，只是删了又活 —— 后来才明白返回值的信息量必须够调用方做判断。
+    </p>
+
+    <h3>追问清单（都是你真答得出来的）</h3>
+    <div class="qa">
+      <div>为什么用 LSM 不用 B+ 树</div>
+      <div>为什么内存表用跳表不用红黑树</div>
+      <div>墓碑是干什么的，什么时候能删</div>
+      <div>读放大从哪来，怎么降</div>
+      <div>WAL 为什么能保证不丢</div>
+      <div>索引为什么 16 条一个锚点</div>
+      <div>刷盘会不会阻塞写入</div>
+      <div>怎么证明它快</div>
+    </div>
+  </div>
+</section>
+
+<section id="time">
+  <h2><span class="num">05</span>时间线</h2>
+  <p class="sub">考研是 A 计划。这个项目是 B 计划，B 计划不该抢 A 计划的时间。</p>
+
+  <div class="timeline">
+    <div class="phase">
+      <div class="phase-when">现在 → 初试</div>
+      <div class="phase-what">
+        <b>只做 A，其它全部冻结</b>
+        <span>WAL 接线一个晚上就能收尾，收尾之后这个项目就是一个完整的、能讲的故事。
+        剩下的 B/C/D 在初试面前一文不值 —— 它们不会让你的分数多一分。</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-when">1 月 → 2 月</div>
+      <div class="phase-what">
+        <b>B → C → D，顺带 Go 起步</b>
+        <span>复试准备（自控原理）优先。项目每个阶段两三个晚上，
+        三个做完大概三周，不用赶。</span>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-when">3 月 → 4 月</div>
+      <div class="phase-what">
+        <b>写简历 + 八股 + 开始投</b>
+        <span>到这个时候，这个项目已经从「能写」变成「能讲」了。
+        简历上的三行字，来自上面那三十秒版。</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stuck">
+  <h2><span class="num">06</span>卡住的时候</h2>
+  <p class="sub">这一节是给状态不好的时候看的。</p>
+  <p>
+    不要从头读文档，也不要重新看一遍之前的代码。直接跳到「接下来四件事」，
+    找到标着<b>下一步</b>的那一张卡，只看它的第一步。
+  </p>
+  <p>
+    每次只做一件事，做完就跑一次验收。跑绿了再想下一件。
+    <b>不要同时开三个半成品</b> —— 那是「飘渺感」最主要的来源：
+    手上有五个没闭合的线头，谁都觉得自己什么都没做成。
+  </p>
+  <p>
+    项目不会因为你停一周就废掉。它躺在 <code>D:\code\lsm-kv</code> 里，
+    不会跑，不会过期，也不会因为你看了一眼手机就消失。
+  </p>
+</section>
+
+<footer>
+  <p>这份文档放在 <code>docs/whats-next.html</code>，随时可以改。哪一条不对、哪一条不想做，直接说。</p>
+  <p>心情差的时候不要写代码。真的。</p>
+</footer>
+
+</div>
+</body>
+</html>

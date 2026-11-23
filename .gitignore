@@ -1,0 +1,35 @@
+build/
+build_win/
+data/
+test_data/
+*.o
+*.a
+*.so
+*.exe
+*.sst
+*.log
+*.dbtmp
+compile_commands.json
+.cache/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.stackdump
+
+# 本地临时探针（我调试时生成的，不该进仓库）
+_probe.txt
+_*.txt
+
+# 运行产物
+*.wal
+*.wal.old
+*.log.old
+
+# 编辑器残留
+tempCodeRunnerFile.*
+
+# 个人试验场（不是引擎代码，留着本地用，不进仓库）
+src/scratch.cpp

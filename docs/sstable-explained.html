@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSTable 是什么 —— 用 89 个字节讲清</title>
+<style>
+  :root{
+    --ink:#2C2C2A; --ink2:#5F5E5A; --ink3:#888780;
+    --line:#D3D1C7; --line2:#E8E6DF; --bg2:#F7F6F2;
+    --blue:#185FA5; --blue-bg:#E6F1FB; --blue-mid:#85B7EB;
+    --green:#3B6D11; --green-bg:#EAF3DE; --green-mid:#97C459;
+    --amber:#854F0B; --amber-bg:#FAEEDA; --amber-mid:#EF9F27;
+    --purple:#534AB7; --purple-bg:#EEEDFE; --purple-mid:#AFA9EC;
+    --red:#A32D2D; --red-bg:#FCEBEB;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:64px}
+  body{
+    margin:0; background:#fff; color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    font-size:15px; line-height:1.75;
+  }
+  .wrap{max-width:900px; margin:0 auto; padding:0 24px 120px}
+
+  header{padding:56px 0 32px; border-bottom:1px solid var(--line2)}
+  .kicker{font-size:12px; letter-spacing:.12em; color:var(--ink3); text-transform:uppercase}
+  h1{font-size:30px; font-weight:500; margin:10px 0 12px; letter-spacing:-.01em}
+  .lede{font-size:16px; color:var(--ink2); max-width:640px}
+  .meta{margin-top:20px; font-size:13px; color:var(--ink3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+
+  nav{
+    position:sticky; top:0; z-index:20; background:rgba(255,255,255,.94);
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line2);
+    margin:0 -24px 0; padding:0 24px;
+  }
+  nav .in{max-width:900px; margin:0 auto; display:flex; gap:4px; overflow-x:auto; padding:10px 0}
+  nav a{
+    flex:none; font-size:13px; color:var(--ink2); text-decoration:none;
+    padding:5px 10px; border-radius:6px; white-space:nowrap;
+  }
+  nav a:hover{background:var(--bg2); color:var(--ink)}
+
+  section{padding:48px 0 8px; border-bottom:1px solid var(--line2)}
+  section:last-of-type{border-bottom:none}
+  .num{font-size:12px; font-family:ui-monospace,monospace; color:var(--ink3); letter-spacing:.08em}
+  h2{font-size:22px; font-weight:500; margin:6px 0 18px; letter-spacing:-.01em}
+  h3{font-size:16px; font-weight:500; margin:28px 0 10px}
+  p{margin:0 0 14px}
+  .muted{color:var(--ink2)}
+  code{
+    font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:13px;
+    background:var(--bg2); padding:1px 5px; border-radius:4px; color:#33322F;
+  }
+  pre{
+    background:#FAFAF7; border:1px solid var(--line2); border-radius:10px;
+    padding:16px 18px; overflow-x:auto; margin:0 0 16px;
+    font-family:ui-monospace,Consolas,monospace; font-size:12.5px; line-height:1.7;
+  }
+  pre code{background:none; padding:0; font-size:inherit}
+  .c{color:var(--ink3)}
+  .k{color:#534AB7}
+  .s{color:#3B6D11}
+  .n{color:#185FA5}
+
+  table{width:100%; border-collapse:collapse; margin:0 0 18px; font-size:13.5px}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line2); vertical-align:top}
+  th{font-weight:500; color:var(--ink2); font-size:12px; letter-spacing:.04em; background:var(--bg2)}
+  td code{font-size:12px}
+  .en{font-family:ui-monospace,monospace; font-size:12px; color:var(--ink3)}
+
+  .note{
+    border-left:2px solid var(--amber-mid); background:var(--amber-bg);
+    padding:14px 18px; border-radius:0 8px 8px 0; margin:0 0 18px; font-size:14px;
+  }
+  .note strong{color:var(--amber); font-weight:500}
+  .warn{border-left-color:#E24B4A; background:var(--red-bg)}
+  .warn strong{color:var(--red)}
+  .ok{border-left-color:var(--green-mid); background:var(--green-bg)}
+  .ok strong{color:var(--green)}
+
+  /* ── 字节网格 ── */
+  .hexwrap{display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:28px; align-items:start}
+  @media(max-width:820px){ .hexwrap{grid-template-columns:1fr} }
+
+  .gridbox{border:1px solid var(--line2); border-radius:12px; padding:16px; background:#fff}
+  .gridlabel{font-size:11px; color:var(--ink3); font-family:ui-monospace,monospace; margin-bottom:10px;
+    display:flex; justify-content:space-between}
+  #grid{display:grid; grid-template-columns:repeat(16,32px); gap:3px}
+  @media(max-width:520px){ #grid{grid-template-columns:repeat(8,32px)} }
+
+  .byte{
+    width:32px; height:42px; padding:0; border:1px solid var(--line2); border-radius:4px;
+    background:#fff; cursor:pointer; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px; font-family:ui-monospace,monospace;
+    transition:transform .08s, box-shadow .08s;
+  }
+  .byte .h{font-size:11px; line-height:1; color:var(--ink)}
+  .byte .a{font-size:9px; line-height:1; color:var(--ink3)}
+  .byte.r1{background:var(--blue-bg); border-color:var(--blue-mid)}
+  .byte.r2{background:var(--green-bg); border-color:var(--green-mid)}
+  .byte.r3{background:var(--amber-bg); border-color:var(--amber-mid)}
+  .byte.f{background:var(--purple-bg); border-color:var(--purple-mid)}
+  .byte.hl{transform:translateY(-2px); box-shadow:0 3px 10px rgba(0,0,0,.14); outline:2px solid currentColor}
+  .byte.r1.hl{outline-color:var(--blue)} .byte.r2.hl{outline-color:var(--green)}
+  .byte.r3.hl{outline-color:var(--amber)} .byte.f.hl{outline-color:var(--purple)}
+  .byte.sel{outline:2px solid var(--ink); transform:translateY(-2px)}
+  .byte.pad{background:#FBFBF8; border-style:dashed; cursor:default}
+
+  .legend{display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; font-size:11.5px; color:var(--ink2)}
+  .legend span{display:flex; align-items:center; gap:5px}
+  .legend i{width:10px; height:10px; border-radius:3px; display:inline-block; border:1px solid}
+  .lg1{background:var(--blue-bg); border-color:var(--blue-mid)}
+  .lg2{background:var(--green-bg); border-color:var(--green-mid)}
+  .lg3{background:var(--amber-bg); border-color:var(--amber-mid)}
+  .lg4{background:var(--purple-bg); border-color:var(--purple-mid)}
+
+  #panel{
+    position:sticky; top:64px; border:1px solid var(--line2); border-radius:12px;
+    padding:18px; background:#fff; min-height:210px;
+  }
+  #panel .ph{font-size:12px; color:var(--ink3); letter-spacing:.04em; margin-bottom:10px}
+  #panel .pname{font-size:17px; font-weight:500; margin-bottom:4px}
+  #panel .pval{font-family:ui-monospace,monospace; font-size:13px; color:var(--blue); margin-bottom:12px; word-break:break-all}
+  #panel .prange{font-family:ui-monospace,monospace; font-size:12px; color:var(--ink3); margin-bottom:12px}
+  #panel .pdesc{font-size:13.5px; color:var(--ink2); line-height:1.7}
+  #panel .empty{font-size:13.5px; color:var(--ink3); line-height:1.8}
+
+  .steps{counter-reset:s; list-style:none; padding:0; margin:0 0 18px}
+  .steps li{
+    counter-increment:s; position:relative; padding:0 0 16px 40px; font-size:14px;
+  }
+  .steps li::before{
+    content:counter(s); position:absolute; left:0; top:1px;
+    width:24px; height:24px; border-radius:50%; background:var(--bg2); border:1px solid var(--line);
+    font-size:12px; font-family:ui-monospace,monospace; color:var(--ink2);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .steps li b{font-weight:500}
+
+  .cmp{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:0 0 18px}
+  @media(max-width:640px){ .cmp{grid-template-columns:1fr} }
+  .cmp > div{border:1px solid var(--line2); border-radius:10px; padding:14px 16px}
+  .cmp h4{margin:0 0 8px; font-size:13px; font-weight:500}
+  .cmp ul{margin:0; padding-left:18px; font-size:13px; color:var(--ink2)}
+  .cmp li{margin-bottom:5px}
+  .bad{border-left:2px solid #E24B4A}
+  .good{border-left:2px solid var(--green-mid)}
+
+  .kv{display:grid; grid-template-columns:120px 1fr; gap:6px 16px; font-size:13.5px; margin-bottom:16px}
+  .kv dt{color:var(--ink3); font-size:12.5px}
+  .kv dd{margin:0}
+
+  footer{padding:32px 0; font-size:12.5px; color:var(--ink3); border-top:1px solid var(--line2); margin-top:40px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Week 5 · 第一天</div>
+  <h1>SSTable 是什么</h1>
+  <p class="lede">用一个真实生成的 89 字节文件，把「有序字符串表」这几个字拆开讲清楚。所有字节都是真的，用你自己的 <code>Decode</code> 读回来的。</p>
+  <div class="meta">D:\code\lsm-kv\docs\sstable-explained.html &nbsp;·&nbsp; 2026-11-15</div>
+</header>
+
+<nav><div class="in">
+  <a href="#g">01 先把词认全</a>
+  <a href="#why">02 为什么要有这个文件</a>
+  <a href="#file">03 文件长什么样</a>
+  <a href="#write">04 怎么写进去</a>
+  <a href="#read">05 怎么读回来</a>
+  <a href="#order">06 有序值钱在哪</a>
+  <a href="#gap">07 现在还缺什么</a>
+  <a href="#todo">08 你要写的三件事</a>
+</div></nav>
+
+<!-- ══════════ 01 术语 ══════════ -->
+<section id="g">
+  <div class="num">01</div>
+  <h2>先把词认全</h2>
+  <p class="muted">你说这些词看不懂 —— 那就先把词说完。这张表里的每个词，后面都会在代码里出现。看不懂名字是无法理解代码的。</p>
+
+  <table>
+    <tr><th style="width:150px">词</th><th style="width:110px">英文全称</th><th>一句话定义</th></tr>
+    <tr><td><b>MemTable</b></td><td class="en">memory table</td><td>内存里那张正在接收写入的表。进程一退，它就没了。</td></tr>
+    <tr><td><b>SSTable</b></td><td class="en">Sorted String Table</td><td>磁盘上那个按 key 排好序的文件。<b>写完就不再改</b>。读作「S-S-table」。</td></tr>
+    <tr><td><b>落盘</b></td><td class="en">flush / persist</td><td>把内存里的数据写到磁盘上。不是"拷过去"，是"保证断电也不丢"。</td></tr>
+    <tr><td><b>Record</b></td><td class="en">record</td><td>一条记录：<code>key</code> + <code>value</code> + <code>type</code>（是写入还是删除）。</td></tr>
+    <tr><td><b>Encode / Decode</b></td><td class="en">—</td><td>把 Record 变成一串字节 / 把一串字节还原成 Record。两个必须成对。</td></tr>
+    <tr><td><b>CRC32</b></td><td class="en">Cyclic Redundancy Check</td><td>一段字节的「指纹」。内容改了一个 bit，指纹就完全不同。用来发现"东西坏了"。</td></tr>
+    <tr><td><b>footer</b></td><td class="en">—</td><td>文件最后的一小段固定长度的区域，记着"数据到哪结束"。中文叫「文件尾」。</td></tr>
+    <tr><td><b>offset</b></td><td class="en">—</td><td>偏移。从文件<b>开头</b>数，是第几个字节。从 <code>0</code> 开始数。</td></tr>
+    <tr><td><b>seek</b></td><td class="en">—</td><td>把读位置直接跳到第 N 个字节，中间的不读。像唱片机直接落针。</td></tr>
+    <tr><td><b>magic number</b></td><td class="en">—</td><td>一个约定好的常数，写在文件里，用来确认"这确实是我的文件"。中文叫「魔数」。</td></tr>
+    <tr><td><b>迭代器</b></td><td class="en">iterator</td><td>一个「位置」。它不拥有数据，只是握着"我现在站在哪个节点上"。</td></tr>
+    <tr><td><b>墓碑</b></td><td class="en">tombstone</td><td>一条 <code>type = kDelete</code> 的记录。<b>删除不是抹掉，是写一条"这个 key 死了"的公告。</b></td></tr>
+    <tr><td><b>compaction</b></td><td class="en">合并</td><td>把多个 SSTable 合成一个，顺便扔掉墓碑和被覆盖的旧值。中文叫「合并」或「压缩」。</td></tr>
+    <tr><td><b>稀疏索引</b></td><td class="en">sparse index</td><td>每 N 条记录才记一个「key → offset」。查询时先在索引里二分，再进文件读一小段。</td></tr>
+    <tr><td><b>block</b></td><td class="en">块</td><td>SSTable 内部按 4KB 切出来的小段，每段自带校验。跳过一个坏块不用把整个文件读废。</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>记忆锚点</strong>：这一页只有两个词是主角 —— <b>MemTable</b>（内存，会没）和 <b>SSTable</b>（磁盘，不会没）。其他 13 个词都是为了让"从内存搬到磁盘"这件事可靠而存在的。
+  </div>
+</section>
+
+<!-- ══════════ 02 为什么 ══════════ -->
+<section id="why">
+  <div class="num">02</div>
+  <h2>为什么要有这个文件</h2>
+
+  <p><b>术语</b>：MemTable 是内存表。</p>
+  <p><b>定义</b>：它是一张包着 SkipList 的壳，所有写入先落到这里。它活在进程的堆上。</p>
+  <p><b>问题</b>：进程一退出、机器一断电、或者被 kill -9，这块内存就归还给操作系统了。里面的数据<b>一个字节都不剩</b>。</p>
+
+  <p>你在 Week 2 已经解决过一半：WAL（预写日志）。每写一条先追加到 <code>wal.log</code>，崩溃了重放一遍就能把内存表重建出来。</p>
+
+  <p>但 WAL 有个性质：它是<b>按时间顺序</b>追加的，一个 key 可能在里面出现十次（十次修改），而且越老的在越前面。用它查一个 key，你得从头翻到尾，还得自己判断哪条最新 —— 几百万行就是一秒多。</p>
+
+  <p>所以还需要第二种东西：把内存表<b>整整齐齐地倒出来</b>，一个 key 只留最新那条，并且按 key 排好序。这个东西就是 SSTable。</p>
+
+  <div class="cmp">
+    <div class="bad">
+      <h4>wal.log（Week 2 已有）</h4>
+      <ul>
+        <li>按<b>时间</b>顺序追加</li>
+        <li>同一个 key 出现多次</li>
+        <li>查一个 key 要扫全文件</li>
+        <li>用途：崩溃恢复</li>
+      </ul>
+    </div>
+    <div class="good">
+      <h4>000001.sst（今天要做）</h4>
+      <ul>
+        <li>按 <b>key</b> 排好序</li>
+        <li>一个 key 只有一条（最新的）</li>
+        <li>查一个 key 可以二分</li>
+        <li>用途：长期存储 + 查询</li>
+      </ul>
+    </div>
+  </div>
+
+  <p><b>比喻（落在具体代码上）</b>：WAL 像<b>流水账</b> —— 按时间记账，想知道某个账户现在多少钱，得从头翻到最后。<br>
+  SSTable 像<b>整理好的账本</b> —— 按账号排序，一翻就到。它们记的是同一笔钱，但一个是过程，一个是结果。</p>
+
+  <div class="note">
+    <strong>一句话</strong>：WAL 保证"不丢"，SSTable 保证"查得快"。两个都要，缺一不可。
+  </div>
+</section>
+
+<!-- ══════════ 03 文件长什么样 ══════════ -->
+<section id="file">
+  <div class="num">03</div>
+  <h2>文件长什么样</h2>
+
+  <p>先看结论，再逐字节拆。整个文件 89 个字节，分两大块：</p>
+
+  <pre><code><span class="c">┌──────────────────────────────────────┐ 偏移 0</span>
+<span class="c">│</span> record 0   21 字节   apple = red      <span class="c">│</span>
+<span class="c">│</span> record 1   25 字节   banana = yellow   <span class="c">│</span>  ← 数据区（data）
+<span class="c">│</span> record 2   19 字节   cherry = 墓碑     <span class="c">│</span>     共 65 字节
+<span class="c">├──────────────────────────────────────┤</span> 偏移 65 = data_end
+<span class="c">│</span> data_end    8 字节   = 65              <span class="c">│</span>
+<span class="c">│</span> count       8 字节   = 3               <span class="c">│</span>  ← footer（固定 24 字节）
+<span class="c">│</span> magic       8 字节   = LSMSST01        <span class="c">│</span>
+<span class="c">└──────────────────────────────────────┘</span> 偏移 89</code></pre>
+
+  <p>下面这 89 个格子就是这个文件真实的字节。<b>点任意一个格子</b>，右边会告诉你它是什么。</p>
+
+  <div class="hexwrap">
+    <div class="gridbox">
+      <div class="gridlabel"><span>000001.sst · 89 bytes</span><span>hex / ascii</span></div>
+      <div id="grid"></div>
+      <div class="legend">
+        <span><i class="lg1"></i>record 0（apple）</span>
+        <span><i class="lg2"></i>record 1（banana）</span>
+        <span><i class="lg3"></i>record 2（cherry 墓碑）</span>
+        <span><i class="lg4"></i>footer</span>
+      </div>
+    </div>
+    <div id="panel">
+      <div class="empty">
+        点左边任意一个字节。<br><br>
+        每一格是 1 个字节，上面是十六进制，下面是它对应的字符（不可打印的显示成 <code>·</code>）。<br><br>
+        同一个字段的几个字节点哪个都一样 —— 它们属于同一个东西。
+      </div>
+    </div>
+  </div>
+
+  <h3>一条记录固定是这六段</h3>
+
+  <p>三段 record 的内部结构完全一样，都是 <code>record.h</code> 里 <code>Encode()</code> 拼出来的顺序：</p>
+
+  <table>
+    <tr><th style="width:90px">顺序</th><th style="width:120px">字段</th><th style="width:80px">长度</th><th>作用</th></tr>
+    <tr><td>1</td><td><b>CRC</b></td><td>4 字节</td><td>后面 5 段的指纹。读的时候重算，对不上就是内容坏了。</td></tr>
+    <tr><td>2</td><td><b>type</b></td><td>1 字节</td><td><code>1</code> = 写入，<code>2</code> = 墓碑（删除）。</td></tr>
+    <tr><td>3</td><td><b>klen</b></td><td>4 字节</td><td>key 有多长。<b>没有它，读的时候就不知道 key 到哪儿结束。</b></td></tr>
+    <tr><td>4</td><td><b>key</b></td><td>klen 字节</td><td>原样存放，不加密、不加结束符。</td></tr>
+    <tr><td>5</td><td><b>vlen</b></td><td>4 字节</td><td>value 有多长。墓碑这里是 0。</td></tr>
+    <tr><td>6</td><td><b>value</b></td><td>vlen 字节</td><td>原样存放。</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>为什么先放 CRC，不放到最后？</strong><br>
+    读的时候，你得先有一个"预期值"，才知道后面那段该校验成什么。放最后的话，你得先把整条解析完、找到末尾，才拿到 CRC —— 而末尾的位置又依赖前面的长度字段，可长度字段本身可能是坏的。<br>
+    <b>先拿到校验值，再校验内容。顺序反了，整个机制立不起来。</b>
+  </div>
+
+  <h3>为什么长度字段写 4 个字节</h3>
+
+  <p>看 record 0 的 klen：字节是 <code>05 00 00 00</code>，读出来是 <b>5</b>。</p>
+  <p>这就是「小端序」（little-endian）：<b>低位字节放在前面</b>。x86 的 CPU 天然就是这个顺序，所以 <code>memcpy</code> 一个 <code>uint32_t</code> 进去，字节序不用管。</p>
+  <p><code>record.h</code> 里那两个函数就是干这个的：</p>
+
+  <pre><code><span class="k">inline void</span> PutFixed32(std::string* dst, uint32_t v) {
+  <span class="k">char</span> buf[<span class="n">4</span>];
+  std::memcpy(buf, &amp;v, <span class="n">4</span>);   <span class="c">// 把 4 字节整数原样抄进缓冲区</span>
+  dst-&gt;append(buf, <span class="n">4</span>);
+}</code></pre>
+
+  <p><code>4</code> 个字节最大能表示 40 亿。key 不可能那么长，但<b>长度字段宁可宽一档，不要刚好够用</b> —— 32 位在"算着算着就溢出"的时候是静默出错，多 4 个字节的成本几乎为零。</p>
+</section>
+
+<!-- ══════════ 04 怎么写 ══════════ -->
+<section id="write">
+  <div class="num">04</div>
+  <h2>怎么写进去</h2>
+
+  <p><b>术语</b>：SSTableBuilder，写文件的那个类。</p>
+  <p><b>定义</b>：它是一个「边来边写」的东西。你给它一条记录，它编码成字节、追加到文件末尾、记下偏移。</p>
+  <p><b>为什么不能一次性传一整个数组</b>：因为上游是 MemTable 的迭代器，数据是一条一条来的。要收集成一个数组再写，等于在内存里又存了一份 —— 那张表本来就是因为太大才要落盘的。</p>
+
+  <h3>Add：一条记录进来发生什么</h3>
+
+  <ol class="steps">
+    <li><b>检查文件开着没</b> —— 没开就报错。关掉的 <code>FILE*</code> 再写一次是未定义行为。</li>
+    <li><b>检查顺序</b> —— <code>record.key &lt;= last_key_</code> 就拒绝。<b>这是今晚最重要的一行。</b></li>
+    <li><b>编码</b> —— 调 <code>Encode(record)</code>，拿到那 21 个字节。</li>
+    <li><b>写文件</b> —— <code>fwrite</code>，然后检查返回值是不是真的写完了。</li>
+    <li><b>记账</b> —— <code>offset_ += 字节数</code>，<code>++count_</code>，<code>last_key_ = record.key</code>。</li>
+  </ol>
+
+  <p>第 2 步为什么能单独拿出来说？看这两种写法：</p>
+
+  <pre><code><span class="c">// 有守卫</span>
+<span class="k">if</span> (count_ &gt; <span class="n">0</span> &amp;&amp; record.key &lt;= last_key_)
+  <span class="k">return</span> Status::InvalidArgument(<span class="s">"sstable: key order violated"</span>);
+
+<span class="c">// 没有守卫</span>
+<span class="c">// 什么也不写，直接 fwrite</span></code></pre>
+
+  <p>没有守卫的那个版本：文件照样写得成功、照样读得回来、测试照样全绿。唯一的症状是<b>某几个 key 查不到</b>，而且只在大数据量下出现 —— 因为破坏的是二分和归并的前提，而它们不会报错，只会给出错误答案。</p>
+
+  <div class="note warn">
+    <strong>宁可写失败，不要写出一个静默错误的文件。</strong><br>
+    这条原则在存储里没有例外。一个"看起来正常、实际错乱"的文件，比一个明确报错的文件危险一百倍 —— 因为它会被放进生产环境，然后三个月后炸。
+  </div>
+
+  <h3>Finish：收尾才有"完整"</h3>
+
+  <ol class="steps">
+    <li><b>拼 footer</b> —— <code>data_end</code>、<code>count</code>、<code>magic</code>，三个 8 字节，一共 24。</li>
+    <li><b>写进去</b> —— 追加到数据区后面。</li>
+    <li><b>三层都刷</b> —— <code>fflush</code> 把用户态缓冲交给内核，<code>_commit</code>/<code>fsync</code> 把内核 buffer 推给设备，最后 <code>fclose</code>。</li>
+    <li><b><code>file_ = nullptr</code></b> —— 立刻置空。</li>
+  </ol>
+
+  <p>第 3 步为什么要刷三层？因为「写进文件」这句话有四种含义，你只做到前两层的时候，断电就全没了：</p>
+
+  <pre><code>你的 std::string
+   ↓ fwrite
+C 库的缓冲区（4KB，用户态）
+   ↓ fflush
+操作系统的 page cache（内核态）
+   ↓ fsync / _commit        ← 只有走到这一步，才叫"落盘"
+磁盘设备</code></pre>
+
+  <p>第 4 步为什么要立刻置空？不置空的话，后面误调 <code>Add</code> 会往一个<b>已关闭</b>的 <code>FILE*</code> 上写 —— 可能崩，也可能"成功"写进一块已经不属于你的内存。<b>悬空指针的定义就是这样：指针还在，指向的东西已经没了。</b></p>
+
+  <div class="note ok">
+    <strong>一个刻意的设计</strong>：没调 <code>Finish</code> 就析构，这个文件<b>不补 footer</b>，于是打开时必然报 Corruption。<br>
+    这是故意的 —— 半成品绝不能长得像好文件。要么整份交出去，要么明确作废，没有中间状态。
+  </div>
+</section>
+
+<!-- ══════════ 05 怎么读 ══════════ -->
+<section id="read">
+  <div class="num">05</div>
+  <h2>怎么读回来</h2>
+
+  <p><b>术语</b>：SSTable::Open。</p>
+  <p><b>定义</b>：打开一个已有文件，把它变成一个能查询的对象。</p>
+  <p><b>问题</b>：你手里只有"这个文件多长"，完全不知道里面有什么。数据在哪结束？不知道。索引在哪？不知道。</p>
+
+  <p>所以只能从<b>末尾</b>开始读。因为文件最后 24 个字节永远是 footer —— 这个位置不依赖任何前置信息，只要知道文件总长就能算出来：</p>
+
+  <pre><code><span class="c">// 文件 89 字节，footer 24 字节</span>
+<span class="c">// footer 起点 = 89 - 24 = 65</span>
+<span class="k">const char</span>* p = data.data() + data.size() - kFooterSize;
+data_end_ = GetFixed64(&amp;p, limit);   <span class="c">// 65  ← 现在知道数据区在哪了</span>
+count_    = GetFixed64(&amp;p, limit);   <span class="c">// 3</span>
+magic     = GetFixed64(&amp;p, limit);   <span class="c">// 0x4C534D5353543031</span></code></pre>
+
+  <p>拿到 <code>data_end</code> 之后，<code>[0, 65)</code> 就是数据区，从偏移 0 一路 <code>Decode</code> 下去就行。</p>
+
+  <div class="note">
+    <strong>为什么 footer 必须定长</strong><br>
+    因为"从后往前退 N 字节"这个动作，必须知道 N。<br>
+    如果 footer 变长，你就得先读一个头才知道 footer 在哪 —— 而头的位置又要先读 footer。死循环。<br>
+    <b>所有"从末尾往回读"的格式，尾巴都必须定长。</b>
+  </div>
+
+  <h3>magic 是干嘛的</h3>
+
+  <p><code>0x4C534D5353543031</code> 就是 ASCII 的 <code>"LSMSST01"</code>（小端存进去，所以你在 hex 里看到的是反过来的 <code>31 30 54 53 53 4D 53 4C</code>）。</p>
+
+  <p>它挡的是「有人把 <code>wal.log</code> 或者一张图片当成 SSTable 打开」。没有它，那种误用会表现成一堆莫名其妙的 corruption 错误，很难查。有了它，第一句话就能说清"这不是我的文件"。</p>
+
+  <div class="note warn">
+    <strong>一个必须记住的顺序</strong>：<br>
+    读 footer 之前，<b>必须先检查文件长度 ≥ 24</b>。<br>
+    文件只有 10 个字节时，<code>data.data() + size - 24</code> 会算到缓冲区<b>前面</b>去 —— 那不是"读到垃圾"，是直接越界（未定义行为）。<br>
+    所有"从末尾往回退 N 字节"的代码，前面都必须有一句 <code>size &gt;= N</code>。
+  </div>
+</section>
+
+<!-- ══════════ 06 有序 ══════════ -->
+<section id="order">
+  <div class="num">06</div>
+  <h2>有序值钱在哪</h2>
+
+  <p>这是整个 SSTable 里唯一真正重要的性质。<b>「Sorted」那两个字不是格式的装饰，是这个数据结构存在的理由。</b></p>
+
+  <h3>好处一：查一条不用扫全表</h3>
+  <p>文件有序，就可以每 N 条记一个 <code>key → offset</code> 的锚点（稀疏索引）。查 <code>pear</code> 时先在锚点里二分找到 <code>[mango, peach]</code> 那一段，然后<b>只读那 4KB</b>。几万条记录 → 一次读取。</p>
+  <p>文件乱序，这个办法直接失效 —— 你只能从头扫到尾。</p>
+
+  <h3>好处二：合并两个文件不用建哈希表</h3>
+  <p>两个文件都有序，合并就是「两边各伸一个手指，谁小谁往前走」：</p>
+  <pre><code>文件 A: apple  banana  mango
+文件 B:        banana  cherry
+              ↓ 对撞
+结果  : apple  banana(选新的)  cherry  mango</code></pre>
+  <p>只用两个指针，内存 O(1)。这就是 compaction 的全部原理，几百万条也一样。</p>
+
+  <h3>好处三：同一个 key 的新旧版本必然挨着</h3>
+  <p>合并的时候，同一个 key 的两条记录一定前后相邻，谁新谁旧一目了然 —— 取后面那条，扔掉前面那条。不用时间戳，不用额外字段。</p>
+
+  <div class="note warn">
+    <strong>但「有序」是你要自己守住的，格式不替你保证。</strong><br>
+    <code>Add</code> 里那一行 <code>if (count_ &gt; 0 &amp;&amp; record.key &lt;= last_key_) return ...</code> 就是守门人。<br>
+    去掉它，上面三个好处全部失效，而<b>没有任何东西会报错</b>。
+  </div>
+
+  <p><b>比喻（落在代码上）</b>：有序的 SSTable 像<b>按拼音排好的字典</b> —— 查「张」字只要翻到 Z 那一叠。无序的 SSTable 像<b>把字典的每一页撕下来打乱</b> —— 字一个不少，但你只能一页页找。</p>
+</section>
+
+<!-- ══════════ 07 缺口 ══════════ -->
+<section id="gap">
+  <div class="num">07</div>
+  <h2>现在还缺什么</h2>
+
+  <p>今晚这版 <code>SSTable</code> 有个刻意的缺口：<b>没有索引</b>。</p>
+
+  <p><code>Open</code> 把整个文件读进内存，<code>Get</code> 在整块内存上从偏移 0 开始线性扫。真实引擎里完全不能接受 —— 一个 SSTable 可能几百 MB，每查一条扫全文件。</p>
+
+  <p>我实测过这笔代价（<code>demo_sstable</code> 的 <code>[6]</code>）：</p>
+
+  <table>
+    <tr><th>记录数</th><th>文件大小</th><th>200 次查询</th><th>平均单次</th></tr>
+    <tr><td>5,000</td><td>170 KB</td><td>342 ms</td><td><b>1.7 ms</b></td></tr>
+    <tr><td>40,000</td><td>1.4 MB</td><td>2586 ms</td><td><b>12.9 ms</b></td></tr>
+  </table>
+
+  <p>数据量 8 倍，耗时 7.6 倍 —— 标准的 O(N)。<b>一次查询 13 毫秒，这不是 bug，是缺索引。</b></p>
+
+  <p>为什么明知慢还这么写？因为今晚要验证的不是性能，是<b>字节格式</b>：</p>
+
+  <div class="note">
+    <strong>先把数据搬对，再谈怎么少搬。</strong><br>
+    顺序反了会同时抓两只兔子 —— 格式还没对就开始优化，最后两边都说不清是哪里出的问题。
+  </div>
+
+  <p>下次要做的三件事：</p>
+  <table>
+    <tr><th style="width:90px">步骤</th><th>做什么</th><th>把什么变成什么</th></tr>
+    <tr><td><b>① 索引</b></td><td>每 N 条记一个 <code>(key, offset)</code>，放在 footer 前面</td><td>O(N) → O(log N + 4KB)</td></tr>
+    <tr><td><b>② 分块</b></td><td>数据按 4KB 切，每块自带校验</td><td>坏一块只废一块，不用整文件报错</td></tr>
+    <tr><td><b>③ 按需读</b></td><td>只 <code>seek</code> + 读需要的那几 KB</td><td>内存从 O(文件大小) → O(1)</td></tr>
+  </table>
+</section>
+
+<!-- ══════════ 08 任务 ══════════ -->
+<section id="todo">
+  <div class="num">08</div>
+  <h2>你要写的三件事</h2>
+
+  <p>上面那个 89 字节的文件，就是这三段代码要产出的东西。<b>看懂了字节图，代码就只是把它写出来。</b></p>
+
+  <h3>TODO 10 · Add（约 12 行）</h3>
+  <p>目标：每来一条记录，在文件末尾追加 21/25/19 个字节，并让 <code>offset_</code> 跟着涨。</p>
+  <pre><code><span class="c">// ① 文件没开 → 报错</span>
+<span class="c">// ② 顺序守卫 → key &lt;= last_key_ 就拒绝        ← 最重要</span>
+<span class="c">// ③ const std::string buf = Encode(record);</span>
+<span class="c">// ④ n = fwrite(...);  n != buf.size() → 报错</span>
+<span class="c">// ⑤ offset_ += buf.size(); ++count_; last_key_ = record.key;</span></code></pre>
+
+  <h3>TODO 11 · Finish（约 15 行）</h3>
+  <p>目标：写那 24 个字节的 footer（紫色那段），然后把三层缓冲刷干净。</p>
+  <pre><code><span class="c">// ① 文件没开 → 报错</span>
+<span class="c">// ② footer = PutFixed64(offset_) + PutFixed64(count_) + PutFixed64(magic)</span>
+<span class="c">//    写成 fwrite，检查返回值</span>
+<span class="c">// ③ fflush → SyncFile → fclose → file_ = nullptr</span>
+<span class="c">// ④ offset_ += kFooterSize;</span></code></pre>
+
+  <h3>TODO 12 · Open（约 20 行）</h3>
+  <p>目标：把一个 <code>.sst</code> 读成能查询的对象。顺序里有两个坑。</p>
+  <pre><code><span class="c">// ① fopen + fread 循环读进 data_</span>
+<span class="c">// ② size &lt; 24 → Corruption             ← 坑一：不检查就往上退会越界</span>
+<span class="c">// ③ 读 footer 三个字段，比对 magic</span>
+<span class="c">// ④ data_end &gt; size - 24 → Corruption   ← 坑二：footer 说数据比文件还长</span>
+<span class="c">// ⑤ *out = std::move(self);</span></code></pre>
+
+  <div class="note ok">
+    <strong>验收</strong>：<code>.\build.ps1 demo_sstable</code><br>
+    现在 4 项红（<code>[1] 条数一致</code>、<code>[2]</code> 两项、后面全跳过）。三件事写完，17 项应该全绿。<br>
+    参考实现跑出来是 <code>ALL CHECKS PASSED</code>。
+  </div>
+
+  <h3>写的时候手边放这三样</h3>
+  <dl class="kv">
+    <dt>bytes</dt><dd>上面那张字节图 —— 你写的代码要产出它</dd>
+    <dt>record.h</dt><dd><code>Encode</code> / <code>Decode</code> 已经写好了，直接调，别再动格式</dd>
+    <dt>sstable.h</dt><dd>注释里每一步都写了做什么；不确定就先把 <code>[1]</code> 跑绿，再往下</dd>
+  </dl>
+
+  <p class="muted">卡住的话先说清楚卡在哪一步 —— 是"不知道写什么"，还是"写了但结果不对"。这两个的排查方向完全相反。</p>
+</section>
+
+<footer>
+  这份文件里的字节是通过项目自己的 <code>record.h</code> 格式生成的，再用 <code>Decode()</code> 读回验证过：
+  <code>@0 apple / @21 banana / @46 cherry / 65 bytes of data area</code>。
+  也就是说，你写完 TODO 10-12，产出的文件应该和它逐字节一致。
+</footer>
+
+</div>
+
+<script>
+const HEX = "8B50189901050000006170706C6503000000726564C8FF1BB7010600000062616E616E610600000079656C6C6F77A624280B0206000000636865727279000000004100000000000000030000000000000031305453534D534C";
+const N = HEX.length / 2;
+
+const FIELDS = [
+  {from:0,  to:4,  seg:"r1", name:"CRC 校验值",  val:"0x9918508B",
+   desc:"record 0 后面 5 段内容的指纹。读的时候会用同样的算法重算一遍，对不上就说明内容被改过 <br><br>代码：<code>PutFixed32(&amp;out, Crc32(body))</code>"},
+  {from:4,  to:5,  seg:"r1", name:"type 记录类型", val:"0x01 = kPut",
+   desc:"1 = 写入，2 = 墓碑（删除）。只占 1 个字节。<br><br>代码：<code>body.push_back(static_cast&lt;char&gt;(record.type))</code>"},
+  {from:5,  to:9,  seg:"r1", name:"klen · key 长度", val:"05 00 00 00 → 5",
+   desc:"小端序：低位字节在前。读出来是 5，所以后面 5 个字节是 key。<br><br>没有这个字段，读的时候就不知道 key 到哪里结束。"},
+  {from:9,  to:14, seg:"r1", name:"key", val:"\"apple\"",
+   desc:"原样 5 个字节，不加密、不加结束符。长度由前面的 klen 决定。"},
+  {from:14, to:18, seg:"r1", name:"vlen · value 长度", val:"03 00 00 00 → 3",
+   desc:"读出来是 3，所以后面 3 个字节是 value。"},
+  {from:18, to:21, seg:"r1", name:"value", val:"\"red\"",
+   desc:"原样存放。这里没有「空」的概念 —— value 是空串时 vlen = 0，记录依然存在。"},
+
+  {from:21, to:25, seg:"r2", name:"CRC 校验值",  val:"0xB71BFFC8",
+   desc:"record 1 的指纹。每条记录各自独立算，互不影响。"},
+  {from:25, to:26, seg:"r2", name:"type 记录类型", val:"0x01 = kPut",
+   desc:"也是写入。"},
+  {from:26, to:30, seg:"r2", name:"klen · key 长度", val:"06 00 00 00 → 6",
+   desc:"key 是 6 个字节。"},
+  {from:30, to:36, seg:"r2", name:"key", val:"\"banana\"",
+   desc:"注意它紧挨着上一条记录的 value —— <b>记录之间没有任何分隔符</b>。怎么知道上一条在哪儿结束？靠上一条自己的长度字段算出来的。"},
+  {from:36, to:40, seg:"r2", name:"vlen · value 长度", val:"06 00 00 00 → 6",
+   desc:"value 是 6 个字节。"},
+  {from:40, to:46, seg:"r2", name:"value", val:"\"yellow\"",
+   desc:"6 个字节：y e l l o w。"},
+
+  {from:46, to:50, seg:"r3", name:"CRC 校验值",  val:"0x0B2824A6",
+   desc:"record 2 的指纹。"},
+  {from:50, to:51, seg:"r3", name:"type 记录类型", val:"0x02 = kDelete",
+   desc:"<b>这是墓碑。</b>意思不是「删掉这条记录」，而是「这个 key 从此是死的」。<br><br>节点不会消失 —— 它必须留着，否则更老的 SSTable 里的旧值就复活了。"},
+  {from:51, to:55, seg:"r3", name:"klen · key 长度", val:"06 00 00 00 → 6",
+   desc:"key 是 6 个字节。"},
+  {from:55, to:61, seg:"r3", name:"key", val:"\"cherry\"",
+   desc:"被删除的 key。"},
+  {from:61, to:65, seg:"r3", name:"vlen · value 长度", val:"00 00 00 00 → 0",
+   desc:"墓碑的 value 一定是 0 字节。但这条记录本身照样占 19 个字节 —— <b>删除不是免费的</b>。"},
+  {from:65, to:65, seg:"r3", name:"（没有 value）", val:"长度 0",
+   desc:"vlen = 0，所以这里什么都没有。下一个字节就是 footer 的开始了。"},
+
+  {from:65, to:73, seg:"f",  name:"data_end", val:"0x41 → 65",
+   desc:"数据区最后一个字节之后的位置。<br><br>为什么要有它？因为打开文件时你只知道「文件多长」，不知道「数据到哪儿结束」。没有它就无法把数据区和 footer 分开。<br><br>注意验算：<code>65 + 24 = 89</code>，正好是文件总长。"},
+  {from:73, to:81, seg:"f",  name:"count", val:"3",
+   desc:"记录条数。看起来是冗余的（扫一遍也能数出来），但它能在不扫全文件的情况下告诉你「这个表里有几条」，也能用来交叉验证扫描结果有没有错。"},
+  {from:81, to:89, seg:"f",  name:"magic", val:"0x4C534D5353543031",
+   desc:"<b>ASCII「LSMSST01」的小端表示</b>，所以你在 hex 里看到的是反过来的 <code>31 30 54 53 53 4D 53 4C</code>。<br><br>作用：确认这确实是个 SSTable 文件，而不是有人把 wal.log 或图片当成它打开。"}
+];
+
+const grid = document.getElementById('grid');
+const panel = document.getElementById('panel');
+let selected = -1;
+
+function segOf(i){
+  if (i < 21) return 'r1';
+  if (i < 46) return 'r2';
+  if (i < 65) return 'r3';
+  return 'f';
+}
+function ch(i){
+  const c = parseInt(HEX.slice(i*2, i*2+2), 16);
+  return (c >= 32 && c < 127) ? String.fromCharCode(c) : '·';
+}
+function fieldAt(i){
+  for (const f of FIELDS) if (i >= f.from && i < f.to) return f;
+  return null;
+}
+
+for (let i = 0; i < N; i++) {
+  const b = document.createElement('button');
+  b.className = 'byte ' + segOf(i);
+  b.dataset.i = i;
+  b.innerHTML = '<span class="h">' + HEX.slice(i*2, i*2+2) + '</span><span class="a">' + ch(i) + '</span>';
+  b.title = 'offset ' + i;
+  grid.appendChild(b);
+}
+const pad = (16 - (N % 16)) % 16;
+for (let k = 0; k < pad; k++) {
+  const p = document.createElement('div');
+  p.className = 'byte pad';
+  grid.appendChild(p);
+}
+
+function paint(i){
+  document.querySelectorAll('.byte.hl').forEach(e => e.classList.remove('hl'));
+  document.querySelectorAll('.byte.sel').forEach(e => e.classList.remove('sel'));
+  const f = fieldAt(i);
+  const btn = grid.querySelector('[data-i="' + i + '"]');
+  if (btn) btn.classList.add('sel');
+  if (!f) return;
+  for (let k = f.from; k < f.to; k++){
+    const el = grid.querySelector('[data-i="' + k + '"]');
+    if (el) el.classList.add('hl');
+  }
+  const range = f.to > f.from
+    ? ('offset ' + f.from + ' – ' + (f.to - 1) + ' &nbsp;·&nbsp; ' + (f.to - f.from) + ' 字节')
+    : 'offset ' + f.from + ' &nbsp;·&nbsp; 0 字节';
+  panel.innerHTML =
+    '<div class="ph">字段</div>' +
+    '<div class="pname">' + f.name + '</div>' +
+    '<div class="pval">' + f.val + '</div>' +
+    '<div class="prange">' + range + '</div>' +
+    '<div class="pdesc">' + f.desc + '</div>';
+}
+
+grid.addEventListener('click', e => {
+  const t = e.target.closest('.byte');
+  if (!t || t.classList.contains('pad')) return;
+  selected = parseInt(t.dataset.i, 10);
+  paint(selected);
+});
+</script>
+</body>
+</html>

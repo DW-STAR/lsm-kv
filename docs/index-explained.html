@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSTable 索引到底在干什么</title>
+<style>
+  :root{
+    --ink:#1c1c1a; --muted:#6b6a64; --faint:#9a998f;
+    --line:#e3e1da; --bg:#fbfaf7; --card:#ffffff;
+    --blue:#185FA5; --blue-bg:#E6F1FB; --blue-line:#B5D4F4;
+    --amber:#854F0B; --amber-bg:#FAEEDA; --amber-line:#FAC775;
+    --red:#A32D2D; --red-bg:#FCEBEB;
+    --green:#0F6E56; --green-bg:#E1F5EE; --green-line:#9FE1CB;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:15px; line-height:1.75;
+  }
+  .wrap{max-width:760px; margin:0 auto; padding:56px 24px 120px}
+  h1{font-size:30px; line-height:1.35; font-weight:600; margin:0 0 10px; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-size:15px; margin:0 0 48px}
+  h2{
+    font-size:20px; font-weight:600; margin:60px 0 16px; padding-top:20px;
+    border-top:1px solid var(--line); letter-spacing:-.01em;
+  }
+  h2 .num{
+    display:inline-block; font-family:var(--mono); font-size:12px; font-weight:400;
+    color:var(--faint); margin-right:12px; letter-spacing:0;
+  }
+  h3{font-size:16px; font-weight:600; margin:32px 0 10px}
+  p{margin:0 0 16px}
+  ul,ol{margin:0 0 16px; padding-left:22px}
+  li{margin:6px 0}
+  code{
+    font-family:var(--mono); font-size:13px; background:#f2f0ea;
+    padding:2px 5px; border-radius:4px; color:#33322e;
+  }
+  pre{
+    font-family:var(--mono); font-size:12.5px; line-height:1.7;
+    background:#f7f6f2; border:1px solid var(--line); border-radius:8px;
+    padding:14px 16px; overflow-x:auto; margin:0 0 18px;
+  }
+  pre code{background:none; padding:0; font-size:inherit}
+  .lead{
+    font-size:17px; line-height:1.7; color:#2e2d29;
+    border-left:3px solid var(--blue); padding:2px 0 2px 18px; margin:0 0 24px;
+  }
+  .note{
+    background:var(--blue-bg); border-left:3px solid var(--blue);
+    padding:14px 18px; border-radius:0 8px 8px 0; margin:0 0 18px; font-size:14.5px;
+  }
+  .warn{
+    background:var(--amber-bg); border-left:3px solid var(--amber);
+    padding:14px 18px; border-radius:0 8px 8px 0; margin:0 0 18px; font-size:14.5px;
+  }
+  .stop{
+    background:var(--red-bg); border-left:3px solid var(--red);
+    padding:14px 18px; border-radius:0 8px 8px 0; margin:0 0 18px; font-size:14.5px;
+  }
+  .note b,.warn b,.stop b{font-weight:600}
+  table{border-collapse:collapse; width:100%; margin:0 0 20px; font-size:14px}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-weight:600; color:var(--muted); font-size:13px; background:#f7f6f2}
+  td.mono,th.mono{font-family:var(--mono); font-size:13px}
+  .num-r{text-align:right}
+
+  .map{border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card); margin:0 0 12px}
+  .map-row{display:flex; align-items:stretch; border-bottom:1px solid var(--line); cursor:pointer; transition:background .12s}
+  .map-row:last-child{border-bottom:none}
+  .map-row:hover{background:#f7f6f2}
+  .map-row.on{background:var(--blue-bg)}
+  .map-off{
+    flex:0 0 92px; font-family:var(--mono); font-size:12px; color:var(--faint);
+    padding:14px 0 14px 14px; border-right:1px solid var(--line);
+  }
+  .map-body{flex:1; padding:13px 16px}
+  .map-name{font-weight:600; font-size:14.5px; margin-bottom:2px}
+  .map-name .sz{font-weight:400; color:var(--muted); font-size:13px; font-family:var(--mono); margin-left:8px}
+  .map-desc{font-size:13px; color:var(--muted)}
+
+  .bytes{display:flex; flex-wrap:wrap; gap:3px; margin:0 0 8px; font-family:var(--mono)}
+  .b{
+    width:34px; height:40px; border-radius:4px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; font-size:11.5px; font-weight:600;
+    border:1px solid transparent; position:relative;
+  }
+  .b .ix{font-size:8.5px; font-weight:400; color:var(--faint); line-height:1}
+  .b.ascii{font-size:13px; font-weight:500}
+  .b.c-crc{background:var(--red-bg); border-color:#F7C1C1; color:var(--red)}
+  .b.c-type{background:#FBEAF0; border-color:#F4C0D1; color:#993556}
+  .b.c-len{background:var(--blue-bg); border-color:var(--blue-line); color:var(--blue)}
+  .b.c-key{background:var(--green-bg); border-color:var(--green-line); color:var(--green)}
+  .b.c-off{background:var(--amber-bg); border-color:var(--amber-line); color:var(--amber)}
+  .b.c-mag{background:#EEEDFE; border-color:#CECBF6; color:#534AB7}
+  .b.ghost{background:#f4f3ee; border-color:var(--line); color:var(--faint)}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--muted); margin:0 0 20px}
+  .legend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:baseline}
+  .lg-crc{background:var(--red-bg); border:1px solid #F7C1C1}
+  .lg-type{background:#FBEAF0; border:1px solid #F4C0D1}
+  .lg-len{background:var(--blue-bg); border:1px solid var(--blue-line)}
+  .lg-key{background:var(--green-bg); border:1px solid var(--green-line)}
+  .lg-off{background:var(--amber-bg); border:1px solid var(--amber-line)}
+  .lg-mag{background:#EEEDFE; border:1px solid #CECBF6}
+
+  .anchors{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:0 0 16px}
+  .anc{
+    border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+    background:var(--card); transition:.15s; font-size:13px;
+  }
+  .anc.hit{border-color:var(--amber-line); background:var(--amber-bg)}
+  .anc.dead{opacity:.38}
+  .anc .k{font-family:var(--mono); font-weight:600; font-size:16px; display:block; margin-bottom:3px}
+  .anc .o{font-family:var(--mono); font-size:12px; color:var(--muted)}
+
+  .searchbox{border:1px solid var(--line); border-radius:10px; background:var(--card); padding:18px; margin:0 0 18px}
+  .searchbox .target{font-family:var(--mono); font-size:14px; margin-bottom:14px}
+  .searchbox .target b{background:var(--amber-bg); padding:1px 6px; border-radius:4px}
+  .log{font-family:var(--mono); font-size:12.5px; line-height:1.9; color:#3a3935; min-height:96px}
+  .log div{opacity:0; animation:fade .3s forwards}
+  .log .dim{color:var(--faint)}
+  .log .ok{color:var(--green); font-weight:600}
+  @keyframes fade{to{opacity:1}}
+  .btnrow{display:flex; gap:10px; margin-top:14px; flex-wrap:wrap}
+  button{
+    font-family:inherit; font-size:13.5px; padding:8px 16px; border-radius:6px;
+    border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer;
+    transition:.12s;
+  }
+  button:hover{background:#f2f0ea; border-color:#cfcdc5}
+  button.primary{background:var(--blue); border-color:var(--blue); color:#fff}
+  button.primary:hover{background:#134d88}
+  button:disabled{opacity:.4; cursor:default}
+
+  .cmp{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 20px}
+  .cmp > div{border:1px solid var(--line); border-radius:8px; padding:14px 16px; background:var(--card)}
+  .cmp h4{margin:0 0 8px; font-size:13.5px; font-weight:600}
+  .cmp .big{font-family:var(--mono); font-size:22px; font-weight:600; line-height:1.2}
+  .cmp .cap{font-size:12.5px; color:var(--muted); margin-top:4px}
+  .bad{color:var(--red)}
+  .good{color:var(--green)}
+
+  .todo{border:1px solid var(--line); border-radius:8px; overflow:hidden; margin:0 0 20px}
+  .todo-row{display:flex; align-items:center; gap:12px; padding:11px 15px; border-bottom:1px solid var(--line); font-size:14px}
+  .todo-row:last-child{border-bottom:none}
+  .todo-row .mark{font-family:var(--mono); font-size:13px; flex:0 0 20px}
+  .todo-row .mark.done{color:var(--green)}
+  .todo-row .mark.todo{color:var(--amber)}
+  .todo-row .lbl{flex:1}
+  .todo-row .where{font-family:var(--mono); font-size:11.5px; color:var(--faint)}
+  .todo-row.pending{background:#fdfbf3}
+
+  .kicker{font-size:12px; font-family:var(--mono); color:var(--faint); letter-spacing:.04em; text-transform:uppercase; margin-bottom:8px}
+  .foot{margin-top:64px; padding-top:20px; border-top:1px solid var(--line); font-size:13px; color:var(--faint)}
+  .foot code{font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>索引到底在干什么</h1>
+<p class="sub">SSTable v2 · 从 1048 个真实字节讲起 · 2026-11-18</p>
+
+<p class="lead">
+  一句话：<b>索引就是书的目录。</b>你查一条 key，不用从第 1 页翻到第 960 页，先翻目录找到大概在哪儿，跳过去，翻两页就找到了。
+</p>
+
+<p>你晕是正常的。前面 v1 只干了一件事 —— 证明「写出去能原样读回来」，那时候整个文件里只有数据。现在突然多出一段你不认识的东西，还改了 footer 长度，看起来像凭空长出来的。</p>
+
+<p>其实不是凭空。下面按「为什么要加 → 加在哪 → 长什么样 → 怎么用」四步走。</p>
+
+
+<h2><span class="num">00</span>为什么会「突然」多出一段</h2>
+
+<p>因为 v1 的验收线过了。这两个阶段的目标是分开的，而且<b>不能同时抓</b>：</p>
+
+<table>
+  <tr><th>阶段</th><th>唯一目标</th><th>可以不管的</th></tr>
+  <tr><td>v1</td><td>字节格式正确 —— 写出去、读回来、每个字节对得上</td><td>性能（全扫也行）</td></tr>
+  <tr><td>v2</td><td>查询不要读全表</td><td>字节格式（记录的 24 字节一个都没改）</td></tr>
+</table>
+
+<div class="warn">
+  <b>为什么不能一起做？</b> 如果一上来就写「格式 + 索引」，出了 bug 你分不清是<b>记录编码错了</b>还是<b>索引定位错了</b> —— 两个都是「查不到这条 key」，症状一模一样。分开做，v1 全绿就是一条干净的基线，后面所有异常都能归因到索引。
+</div>
+
+<p>所以「突然多出一段」的真相是：<b>数据区的格式已经被冻结了，我们只是在文件末尾追加了两块东西。</b>记录还是 <code>[CRC 4B][type 1B][klen 4B][key][vlen 4B][value]</code>，一个字节都没动。</p>
+
+
+<h2><span class="num">01</span>先看 v1 有多慢</h2>
+
+<p>这是你自己跑出来的 <code>demo_sstable</code> 第 [6] 段的数字：</p>
+
+<table>
+  <tr><th>数据量</th><th class="num-r">200 次查询总耗时</th><th class="num-r">单次</th></tr>
+  <tr><td class="mono">5 000 条</td><td class="num-r mono">328 ms</td><td class="num-r mono">1.64 ms</td></tr>
+  <tr><td class="mono">40 000 条</td><td class="num-r mono">2 468 ms</td><td class="num-r mono">12.3 ms</td></tr>
+</table>
+
+<p>数据量 ×8，耗时 ×7.8。<b>正比。</b>这就是 O(N) 的样子 —— 多一条记录，查询就多扫一条。</p>
+
+<p>而这个数字还是「整个文件已经在内存的 <code>std::string</code> 里」的时候测的。真实引擎里每一次扫都要从磁盘读，代价还要再乘上几个数量级。</p>
+
+<div class="stop">
+  <b>算一笔账：</b>100 万条记录、平均每次查 50 万条 —— 就算每条只要 20 纳秒（纯内存比较，非常乐观），一次查询也要 <b>10 毫秒</b>。一个数据库每秒只能回答 100 个查询。这不是「慢一点」，这是不可用。
+</div>
+
+
+<h2><span class="num">02</span>索引 = 目录。就这么简单</h2>
+
+<p>想象一本 960 页的书，40 章，每章 24 页。你要找第 38 章：</p>
+
+<ul>
+  <li><b>没有目录</b>：从第 1 页一页页翻 → 翻 888 页</li>
+  <li><b>有目录</b>：看目录写着「第 33 章 · 第 769 页」→ 直接跳到 769 页，往下翻 5 页</li>
+</ul>
+
+<p>关键在目录<b>只写了 3 行</b>，不是 40 行：</p>
+
+<pre><code>第 1  章 ......... 第 1   页
+第 17 章 ......... 第 385 页
+第 33 章 ......... 第 769 页</code></pre>
+
+<p>每 16 章记一行。为什么不满满当当写 40 行？因为 <b>目录写满了就等于把书抄了一遍</b> —— 那还不如直接翻书。</p>
+
+<p>映射到 SSTable，一模一样：</p>
+
+<table>
+  <tr><th>书</th><th>SSTable</th></tr>
+  <tr><td>第 33 章</td><td>一条记录（比如 <code>k032</code>）</td></tr>
+  <tr><td>第 769 页</td><td>这条记录在文件里的偏移（比如 <code>768</code>）</td></tr>
+  <tr><td>每 16 章记一行</td><td>每 16 条记录记一个锚点（<code>kIndexInterval = 16</code>）</td></tr>
+  <tr><td>目录</td><td>索引区（<code>index_</code>，落盘后是文件里的一段）</td></tr>
+</table>
+
+<p>「稀疏索引」这个词说的就是这件事：<b>不是每条都记，是隔一段记一个。</b>省下来的空间，换来的是「多扫几页」。</p>
+
+
+<h2><span class="num">03</span>真实文件长什么样</h2>
+
+<p>我写了个工具，用 <code>SSTableBuilder</code> 生成了 40 条记录（<code>k000</code>…<code>k039</code>，value 是 <code>val-000</code>…<code>val-039</code>），然后把它拆开。整个文件 <b>1048 字节</b>，分三段：</p>
+
+<div class="map" id="filemap">
+  <div class="map-row on" data-seg="data">
+    <div class="map-off">0</div>
+    <div class="map-body">
+      <div class="map-name">数据区 data<span class="sz">960 字节 · 40 条记录</span></div>
+      <div class="map-desc">每条 24 字节，按 key 升序紧挨着排。v1 就这么多，一个字节没变。</div>
+    </div>
+  </div>
+  <div class="map-row" data-seg="index">
+    <div class="map-off">960</div>
+    <div class="map-body">
+      <div class="map-name">索引区 index<span class="sz">48 字节 · 3 项 × 16 字节</span></div>
+      <div class="map-desc">v2 新增。每项 = 一个 key + 它在数据区的位置。</div>
+    </div>
+  </div>
+  <div class="map-row" data-seg="footer">
+    <div class="map-off">1008</div>
+    <div class="map-body">
+      <div class="map-name">footer<span class="sz">40 字节 · 5 个 uint64</span></div>
+      <div class="map-desc">v1 是 24 字节 3 个字段，v2 变成 40 字节 5 个字段。</div>
+    </div>
+  </div>
+</div>
+<p style="font-size:13px;color:var(--faint);margin-top:-4px">文件总长 1048 = 960 + 48 + 40</p>
+
+<p>这个 1048 是不是刚好能对上？因为我们特意挑了整齐的数据：</p>
+
+<pre><code>一条记录 = 4(CRC) + 1(type) + 4(klen) + 4("k000") + 4(vlen) + 7("val-000")
+         = 24 字节
+
+40 条记录        = 24 × 40      = 960       ← data_end
+一块 16 条       = 24 × 16      = 384       ← 锚点间距也是 384
+40 条 → 3 块     = 16 + 16 + 8  = 40 条
+3 个锚点 × 16 B  = 48 字节                  ← 索引区
+footer           = 40 字节
+                                     合计 = 1048</code></pre>
+
+<div class="note">
+  <b>注意最后一块只有 8 条。</b>40 不是 16 的整数倍，所以第三块「不满」。索引里不会有第 4 个锚点 —— 因为锚点只在「第 0、16、32 条」这三个位置记。这是稀疏索引的自然结果，不用特殊处理。
+</div>
+
+
+<h2><span class="num">04</span>索引项：16 个字节，就两样东西</h2>
+
+<p>索引区里 3 项，原始字节是这样（从文件里逐字节读出来的，不是我编的）：</p>
+
+<pre><code>[960]  04 00 00 00  6B 30 30 30  00 00 00 00 00 00 00 00
+[976]  04 00 00 00  6B 30 31 36  80 01 00 00 00 00 00 00
+[992]  04 00 00 00  6B 30 33 32  00 03 00 00 00 00 00 00</code></pre>
+
+<div class="bytes" id="idxbytes"></div>
+<div class="legend">
+  <span><i class="lg-len"></i>klen · 4 字节</span>
+  <span><i class="lg-key"></i>key · 变长</span>
+  <span><i class="lg-off"></i>offset · 8 字节</span>
+</div>
+
+<p>拆开读：</p>
+
+<table>
+  <tr><th class="mono">klen</th><th class="mono">key</th><th class="mono">offset</th><th>什么意思</th></tr>
+  <tr><td class="mono">04</td><td class="mono">k000</td><td class="mono">0</td><td>第 0 条记录在文件第 0 字节</td></tr>
+  <tr><td class="mono">04</td><td class="mono">k016</td><td class="mono">384</td><td>第 16 条记录在文件第 384 字节</td></tr>
+  <tr><td class="mono">04</td><td class="mono">k032</td><td class="mono">768</td><td>第 32 条记录在文件第 768 字节</td></tr>
+</table>
+
+<p><code>80 01 00 00 00 00 00 00</code> 就是 384 —— 小端，低字节在前。0x180 = 384。<code>00 03 00…</code> 是 0x300 = 768。这些数你手算也能对上（16 × 24 = 384，32 × 24 = 768），这就是为什么我挑了这么整齐的数据。</p>
+
+<h3>为什么 key 前面要记一个 klen</h3>
+<p>因为 key 是变长的。<code>k000</code> 是 4 字节，但真实项目里 <code>user:10086:profile</code> 是 18 字节。没有长度，你读到哪儿算一个 key 结束？只能靠猜。</p>
+<p>这和 <code>record.h</code> 里一条记录的结构是同一个套路 —— <b>变长字段前面必须有一个长度</b>。这个模式你会在这行代码里见到一百次。</p>
+
+<h3>为什么 offset 要 8 字节</h3>
+<p>4 字节最大 4GB。单个 SSTable 一般到不了 4GB，但「刚好够用」的字段类型是存储系统里最常见的静默 bug 来源：超过的那天它不会报错，它会绕回去。<b>长度和偏移这类字段，宁可宽一档。</b></p>
+
+
+<h2><span class="num">05</span>footer：从 3 个字段变 5 个</h2>
+
+<p>v1 的 footer 是 <code>[data_end][count][magic]</code> = 24 字节。v2 要能定位索引区，所以多了两个：</p>
+
+<table>
+  <tr><th>位置</th><th>字段</th><th class="mono">值</th><th>作用</th></tr>
+  <tr><td class="mono">+0</td><td>data_end</td><td class="mono">960</td><td>数据区到哪儿结束</td></tr>
+  <tr><td class="mono">+8</td><td>index_offset</td><td class="mono">960</td><td>索引区从哪儿开始</td></tr>
+  <tr><td class="mono">+16</td><td>index_count</td><td class="mono">3</td><td>索引有几项</td></tr>
+  <tr><td class="mono">+24</td><td>record_count</td><td class="mono">40</td><td>数据区有几条记录</td></tr>
+  <tr><td class="mono">+32</td><td>magic</td><td class="mono">LSMSST02</td><td>印章 + 版本号</td></tr>
+</table>
+
+<p>真实字节：</p>
+
+<pre><code>C0 03 00 00 00 00 00 00   → 960    data_end
+C0 03 00 00 00 00 00 00   → 960    index_offset
+03 00 00 00 00 00 00 00   → 3      index_count
+28 00 00 00 00 00 00 00   → 40     record_count
+32 30 54 53 53 4D 53 4C   → "LSMSST02"（小端倒着看）</code></pre>
+
+<h3>为什么 data_end 和 index_offset 现在相等，还要各记一份</h3>
+<p>此刻它们必然相等 —— 数据区写完之后，索引紧接着开始，中间什么都没有。那为什么记两份？</p>
+<ul>
+  <li><b>交叉验证</b>：如果哪天它们不相等而格式规定必须相等，就是文件被改过或有空洞，可以报 Corruption。</li>
+  <li><b>给中间留位置</b>：后面要插布隆过滤器、统计信息（最小 key、最大 key、压缩算法标识…），那时候两者就分开了。现在就把字段留好，那天不用再改一次格式。</li>
+</ul>
+
+<div class="note">
+  <b>magic 也换了。</b>v1 是 <code>LSMSST01</code>，v2 是 <code>LSMSST02</code>。同一个「LSMS」前缀 + 不同版本号。这样读到 v1 老文件时能精确说「版本不对」，而不是笼统的「magic 不对」—— 前者要做兼容或重建，后者说明你打开的根本不是这个文件。两种错误要干的事完全不同。
+</div>
+
+
+<h2><span class="num">06</span>查一条记录，到底怎么走</h2>
+
+<p>现在拿 <code>k037</code> 来试。它在第三块里（<code>k032</code>…<code>k039</code>）。</p>
+
+<p>整个过程两步：<b>先在索引里二分，找到「我可能在哪个块」，再进那个块顺着扫。</b></p>
+
+<div class="anchors" id="anchors">
+  <div class="anc" data-i="0"><span class="k">k000</span><span class="o">offset 0</span></div>
+  <div class="anc" data-i="1"><span class="k">k016</span><span class="o">offset 384</span></div>
+  <div class="anc" data-i="2"><span class="k">k032</span><span class="o">offset 768</span></div>
+</div>
+
+<div class="searchbox">
+  <div class="target">目标 key = <b>k037</b>　·　索引里有 3 个锚点，二分最多 2 步</div>
+  <div class="log" id="log"><div class="dim">点下面按钮开始。</div></div>
+  <div class="btnrow">
+    <button class="primary" id="stepBtn">下一步</button>
+    <button id="resetBtn">重来</button>
+  </div>
+</div>
+
+<p>最后一步是关键：<b>块内从 offset 768 开始，用 <code>Decode</code> 一条条往下解，最多扫 16 条。</b>实际扫了 6 条（k032 → k037）就命中了。</p>
+
+<div class="cmp">
+  <div>
+    <h4 class="bad">v1 怎么查</h4>
+    <div class="big bad">38 条</div>
+    <div class="cap">从 offset 0 一路 Decode 到 k037，每条都比一遍</div>
+  </div>
+  <div>
+    <h4 class="good">v2 怎么查</h4>
+    <div class="big good">2 + 6</div>
+    <div class="cap">2 次索引比较，定位到块；块内扫 6 条</div>
+  </div>
+</div>
+
+<p>40 条数据看不出多大差别（38 vs 8）。但差距是跟着数据量线性放大的 —— 见下一节。</p>
+
+
+<h2><span class="num">07</span>二分到底在比什么（这里最容易写错）</h2>
+
+<p>你要找的不是「第一个 ≥ target 的锚点」，而是<b>「最后一个 ≤ target 的锚点」</b>。</p>
+
+<p>为什么？因为索引项的含义是「<b>这一块的起点</b>」。如果你找 <code>k037</code>：</p>
+
+<ul>
+  <li>第一个 ≥ k037 的锚点 = <code>k032</code>？不对，<code>k032 &lt; k037</code>，所以没有 ≥ 它的锚点。按这个找法你会落到「头」或者「尾」，全错。</li>
+  <li>最后一个 ≤ k037 的锚点 = <code>k032</code> ✅ 因为 k037 一定落在「k032 开始的那一块」里（k032 到 k039 之间）。</li>
+</ul>
+
+<p>换个角度想：<b>锚点 k032 说的是「从这个位置开始，之后的 key 都 ≥ k032」</b>。既然 k037 ≥ k032，那 k037 只可能在 k032 之后。而锚点 k048（如果有）说的「之后都 ≥ k048」对 k037 不成立，所以 k037 一定在它之前。</p>
+
+<p>所以：<b>找最后一个 key ≤ target 的锚点，那块就是它的候选块。</b></p>
+
+<pre><code>uint64_t lo = 0, hi = index_.size();
+while (lo &lt; hi) {
+  const uint64_t mid = lo + (hi - lo) / 2;
+  if (index_[mid].key &lt;= target) lo = mid + 1;   // mid 这块可能含 target，往右
+  else                          hi = mid;        // mid 太大，往左
+}
+// lo 是「第一个 &gt; target 的锚点」，所以候选块是 lo - 1
+const uint64_t block = (lo == 0) ? 0 : lo - 1;</code></pre>
+
+<div class="stop">
+  <b>边界陷阱：</b><code>lo == 0</code> 的情况必须单独处理。它意味着<b>所有锚点都 &gt; target</b>（target 比最小的 key 还小），这时应该从第 0 块开始扫 —— 而不是「lo - 1」变成 <code>0 - 1</code> 这个巨大的无符号数，然后越界读。<br><br>和 <code>Seek</code> 里那个 <code>p</code> 停在左邻、返回 <code>p-&gt;next[0]</code> 是同一类问题：<b>指针/下标停在「左边那一格」时，要单独想清楚「左边没有格子」怎么办。</b>
+</div>
+
+<p>顺便，代码里 <code>lo + (hi - lo) / 2</code> 而不写 <code>(lo + hi) / 2</code>：后者在 <code>lo</code> 和 <code>hi</code> 都很大时会整数溢出。索引项数量到不了这个规模，但这是二分查找的标准写法，照着写不会有坏处。</p>
+
+
+<h2><span class="num">08</span>为什么是 16，不是 4，也不是 64</h2>
+
+<p>这是一个纯粹的权衡，没有正确答案，只有「在什么场景下更合适」。</p>
+
+<div class="cmp">
+  <div>
+    <h4>间隔调小（比如 4）</h4>
+    <div class="cap"><b>好：</b>块内只扫 4 条，快</div>
+    <div class="cap"><b>坏：</b>索引变成数据的 1/4，空间暴涨</div>
+  </div>
+  <div>
+    <h4>间隔调大（比如 64）</h4>
+    <div class="cap"><b>好：</b>索引只占 1/64，省空间</div>
+    <div class="cap"><b>坏：</b>块内最多扫 64 条，慢</div>
+  </div>
+</div>
+
+<p>总代价大致是：<code>log₂(N/16) 次索引比较 + 16 次块内扫描</code>。间隔变大，第一项变小（但 log 变化极慢），第二项线性变大。所以<b>间隔主要影响第二项</b> —— 它应该跟「一次 I/O 读进来多少字节」对齐，而不是跟「记录条数」对齐。</p>
+
+<div class="note">
+  <b>LevelDB 的做法更彻底：</b>它不按「每 N 条」切块，而是按「每 4KB」切 —— 因为磁盘一次读的最小单位就是 4KB 左右的页。读一块 = 一次 I/O。我们按条数切是为了好讲，等做 compaction 的时候可以改成按字节。
+</div>
+
+
+<h2><span class="num">09</span>复杂度账：100 万条的时候差多少</h2>
+
+<p>同样查一条 key，两种做法的步数：</p>
+
+<table>
+  <tr><th>数据量</th><th class="num-r">v1 全扫</th><th class="num-r">v2 索引</th><th class="num-r">倍数</th></tr>
+  <tr><td class="mono">40 条</td><td class="num-r mono">38</td><td class="num-r mono">2 + 6 = 8</td><td class="num-r mono">4.8×</td></tr>
+  <tr><td class="mono">1 万条</td><td class="num-r mono">~5 000</td><td class="num-r mono">10 + 16 = 26</td><td class="num-r mono">190×</td></tr>
+  <tr><td class="mono">100 万条</td><td class="num-r mono">~500 000</td><td class="num-r mono">16 + 16 = 32</td><td class="num-r mono">15 000×</td></tr>
+</table>
+
+<p>100 万条那一行怎么来的：</p>
+<pre><code>索引项数 = 1 000 000 / 16 = 62 500
+二分步数 = log₂(62 500) ≈ 16
+块内扫描 = 最多 16 条
+合计     ≈ 32 步
+
+v1 平均要扫一半 = 500 000 步
+倍数     = 500 000 / 32 ≈ 15 600</code></pre>
+
+<p><b>这就是「O(N) 变 O(log N)」的实际意义。</b>不是「快一点」，是「数据量涨 25 倍，查询步数只多 1 步」。</p>
+
+
+<h2><span class="num">10</span>还没做的东西（别以为索引做完了就完了）</h2>
+
+<ul>
+  <li><b>Open 还是把整个文件读进内存。</b>索引再快，文件本身 2MB 全灌进 <code>data_</code> 也白搭。真实引擎是 <code>pread</code> 只读需要的那几 KB。</li>
+  <li><b>数据区没有块级校验。</b>现在每条记录有自己的 CRC，但如果某个长度字段被改坏，你连「下一条从哪儿开始」都不知道。LevelDB 的解法是每 4KB 块自带一个 CRC —— 就算块内全乱了，块边界仍然可信。</li>
+  <li><b>索引区本身没有校验。</b>它也是磁盘上的字节，也会坏。</li>
+  <li><b>没有布隆过滤器。</b>查一个根本不存在的 key，现在仍要走完全程（二分 + 扫一块）。布隆过滤器能在<b>读磁盘之前</b>就说「这个 key 肯定不在」，省掉整趟 I/O。</li>
+</ul>
+
+<p>这些都不急。今天的验收线是：<b>索引能正确写出去、正确读回来、查询结果和全扫完全一致。</b></p>
+
+
+<h2><span class="num">11</span>你现在的进度</h2>
+
+<div class="todo">
+  <div class="todo-row"><span class="mark done">✓</span><span class="lbl">TODO 13 · <code>SkipList::Seek</code></span><span class="where">skip_list.h</span></div>
+  <div class="todo-row"><span class="mark done">✓</span><span class="lbl">TODO 14 · Add 里记索引锚点</span><span class="where">sstable.h:290</span></div>
+  <div class="todo-row"><span class="mark done">✓</span><span class="lbl">TODO 15 · Finish 里写索引区</span><span class="where">sstable.h:384</span></div>
+  <div class="todo-row pending"><span class="mark todo">○</span><span class="lbl">Open · 读 40 字节 footer + 解析索引区</span><span class="where">sstable.h:482</span></div>
+  <div class="todo-row pending"><span class="mark todo">○</span><span class="lbl">FindRecord · 二分定位 + 块内扫</span><span class="where">sstable.h:526</span></div>
+  <div class="todo-row pending"><span class="mark todo">○</span><span class="lbl">demo_sstable · 适配 v2 格式</span><span class="where">src/demo_sstable.cpp</span></div>
+</div>
+
+<p>写方（Builder）已经完整了 —— 索引在内存里攒好、Finish 时落盘、footer 记好位置。<b>现在整个文件是「写得出来但读不回来」的状态</b>，因为读方还在按 v1 的 24 字节 footer 解析，字段全错位，magic 必然对不上，所以会报 Corruption。</p>
+
+<p>这个现象现在就能验证：跑一下 <code>.\build.ps1 demo_sstable</code>，看它是怎么红的。这不是代码坏了，是<b>格式演进时「写方领先、读方落后」的正常状态</b> —— 而且它红得很快、很明确，正是 magic 该起的作用。</p>
+
+<div class="foot">
+  数据来自 <code>build_win/idx_sample.sst</code>（1048 字节，40 条记录，由 <code>_dump_index.cpp</code> 生成并逐字节校验）。
+</div>
+
+</div>
+
+<script>
+(function () {
+  // ── 索引区 48 字节 ─────────────────────────────
+  var idx = [
+    {hex:['04','00','00','00'], cls:['c-len','c-len','c-len','c-len'], ascii:null},
+    {hex:['6B','30','30','30'], cls:['c-key','c-key','c-key','c-key'], ascii:['k','0','0','0']},
+    {hex:['00','00','00','00','00','00','00','00'], cls:['c-off','c-off','c-off','c-off','c-off','c-off','c-off','c-off'], ascii:null},
+    {hex:['04','00','00','00'], cls:['c-len','c-len','c-len','c-len'], ascii:null},
+    {hex:['6B','30','31','36'], cls:['c-key','c-key','c-key','c-key'], ascii:['k','0','1','6']},
+    {hex:['80','01','00','00','00','00','00','00'], cls:['c-off','c-off','c-off','c-off','c-off','c-off','c-off','c-off'], ascii:null},
+    {hex:['04','00','00','00'], cls:['c-len','c-len','c-len','c-len'], ascii:null},
+    {hex:['6B','30','33','32'], cls:['c-key','c-key','c-key','c-key'], ascii:['k','0','3','2']},
+    {hex:['00','03','00','00','00','00','00','00'], cls:['c-off','c-off','c-off','c-off','c-off','c-off','c-off','c-off'], ascii:null}
+  ];
+
+  var host = document.getElementById('idxbytes');
+  var rows = [ [0,3], [3,6], [6,9] ];
+  rows.forEach(function (r, ri) {
+    var line = document.createElement('div');
+    line.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;width:100%;margin-bottom:4px';
+    if (ri > 0) line.style.marginTop = '8px';
+    var tag = document.createElement('span');
+    tag.style.cssText = 'font-family:var(--mono);font-size:11px;color:var(--faint);width:52px;flex:0 0 52px;display:flex;align-items:center';
+    tag.textContent = '#' + ri + ' @' + (960 + ri * 16);
+    line.appendChild(tag);
+    for (var g = r[0]; g < r[1]; g++) {
+      var grp = idx[g];
+      for (var i = 0; i < grp.hex.length; i++) {
+        var d = document.createElement('div');
+        d.className = 'b ' + grp.cls[i];
+        var show = grp.ascii ? grp.ascii[i] : grp.hex[i];
+        if (!grp.ascii) d.classList.add('ascii');
+        else d.classList.add('ascii');
+        d.textContent = show;
+        d.title = '0x' + grp.hex[i] + ' = ' + parseInt(grp.hex[i], 16);
+        line.appendChild(d);
+      }
+    }
+    host.appendChild(line);
+  });
+
+  // ── 二分查找演示 ───────────────────────────────
+  var steps = [
+    {mid:1, anchor:'k016', text:'mid=1 → 锚点 k016　k016 ≤ k037 成立 → lo 右移到 2', state:{lo:2,hi:3}},
+    {mid:2, anchor:'k032', text:'mid=2 → 锚点 k032　k032 ≤ k037 成立 → lo 右移到 3', state:{lo:3,hi:3}}
+  ];
+  var cur = -1;
+  var logEl = document.getElementById('log');
+  var btn = document.getElementById('stepBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var ancEls = document.querySelectorAll('.anc');
+
+  function paint(st) {
+    ancEls.forEach(function (el) {
+      el.classList.remove('hit','dead');
+      var i = parseInt(el.getAttribute('data-i'), 10);
+      if (st.mid === i) el.classList.add('hit');
+      else if (i < st.mid) el.classList.add('dead');
+    });
+  }
+
+  function reset() {
+    cur = -1;
+    logEl.innerHTML = '<div class="dim">点下面按钮开始。</div>';
+    ancEls.forEach(function (el) { el.classList.remove('hit','dead'); });
+    btn.disabled = false;
+    btn.textContent = '下一步';
+  }
+
+  btn.addEventListener('click', function () {
+    cur++;
+    if (cur < steps.length) {
+      var s = steps[cur];
+      paint(s.state);
+      var d = document.createElement('div');
+      d.textContent = 'step ' + cur + '　' + s.text;
+      logEl.appendChild(d);
+    }
+    if (cur >= steps.length - 1) {
+      btn.disabled = true;
+      btn.textContent = '完成';
+      var d2 = document.createElement('div');
+      d2.className = 'ok';
+      d2.textContent = '⇒ lo=3 → 候选块 = lo-1 = 2';
+      logEl.appendChild(d2);
+      var d3 = document.createElement('div');
+      d3.className = 'dim';
+      d3.textContent = '   块 2 从 offset 768 开始，Decode 6 条命中 k037';
+      logEl.appendChild(d3);
+      ancEls.forEach(function (el) {
+        if (el.getAttribute('data-i') === '2') { el.classList.remove('dead'); el.classList.add('hit'); }
+      });
+    }
+  });
+
+  resetBtn.addEventListener('click', reset);
+
+  // ── 文件地图点击 ───────────────────────────────
+  var rows2 = document.querySelectorAll('.map-row');
+  rows2.forEach(function (r) {
+    r.addEventListener('click', function () {
+      rows2.forEach(function (x) { x.classList.remove('on'); });
+      r.classList.add('on');
+    });
+  });
+})();
+</script>
+</body>
+</html>

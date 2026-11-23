@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>链表是怎么长出来的 —— RandomLevel 到底插在哪里</title>
+<style>
+  :root {
+    --ink: #23221e;
+    --ink-2: #5b5850;
+    --ink-3: #8b877c;
+    --line: #e3dfd4;
+    --bg: #fbfaf6;
+    --card: #ffffff;
+    --accent: #185fa5;
+    --accent-bg: #eaf2fa;
+    --warn: #a32d2d;
+    --warn-bg: #fcefee;
+    --key: #0f6e56;
+    --key-bg: #e8f5f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 20px 96px;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    font-size: 16.5px; line-height: 1.85;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  header { padding: 56px 0 30px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 27px; line-height: 1.35; margin: 0 0 14px; font-weight: 600; letter-spacing: -0.3px; }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0; }
+  .meta { color: var(--ink-3); font-size: 13px; margin-top: 16px; }
+
+  h2 { font-size: 20px; font-weight: 600; margin: 54px 0 6px; padding-top: 8px; letter-spacing: -0.2px; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; font-weight: 500; }
+  h3 { font-size: 16.5px; font-weight: 600; margin: 30px 0 8px; }
+  p { margin: 12px 0; }
+  ul, ol { margin: 12px 0; padding-left: 22px; }
+  li { margin: 7px 0; }
+  strong { font-weight: 600; }
+  em { font-style: normal; background: linear-gradient(transparent 62%, #fdedb8 62%); padding: 0 1px; }
+
+  code {
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: 0.88em; background: #f1efe7; padding: 1.5px 5px; border-radius: 3px; color: #4a4238;
+  }
+  pre {
+    background: #f6f4ed; border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.72;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .essence { background: var(--key-bg); border-left: 3px solid var(--key); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .essence .tag { font-size: 12px; letter-spacing: 0.6px; color: var(--key); display: block; margin-bottom: 6px; font-weight: 600; }
+  .essence p { margin: 0; font-size: 15.5px; }
+
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .warn p { margin: 0; font-size: 15.5px; }
+  .warn .tag { font-size: 12px; color: var(--warn); font-weight: 600; display: block; margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-2); font-size: 13.5px; border-bottom: 1px solid #cdc7b8; }
+  td:first-child { white-space: nowrap; }
+
+  details { margin: 12px 0; padding: 10px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+  details p { margin: 10px 0 4px; font-size: 15.5px; }
+
+  footer { margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13.5px; }
+
+  .viz { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 24px 0; overflow: hidden; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #faf8f2; }
+  .bar .sp { flex: 1 1 auto; }
+  .bar button { font: inherit; font-size: 13.5px; padding: 4px 12px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink-2); }
+  .bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .bar button:disabled { opacity: 0.4; cursor: default; }
+  .bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stat { display: flex; gap: 22px; flex-wrap: wrap; padding: 10px 16px 0; font-size: 13.5px; color: var(--ink-2); }
+  .stat b { color: var(--ink); font-weight: 600; }
+  #host { padding: 6px 14px 0; }
+  #host svg { display: block; width: 100%; height: auto; }
+  .cap { padding: 8px 16px 16px; font-size: 14px; color: var(--ink-2); min-height: 3em; }
+  .cap b { color: var(--ink); }
+  .lvl { font: 500 11.5px "Cascadia Mono", Consolas, monospace; fill: var(--ink-3); }
+  .nd rect { fill: #fff; stroke: #d9d4c7; stroke-width: 1; }
+  .nd text { font: 500 13px "Cascadia Mono", Consolas, monospace; fill: #4a4238; }
+  .nd.head rect { fill: #f4f1e8; }
+  .nd.head text { fill: var(--ink-3); font-size: 11.5px; }
+  .nd.fresh rect { stroke: var(--key); stroke-width: 2; fill: var(--key-bg); }
+  .arw { stroke: #c9c3b4; stroke-width: 1.4; }
+  .arw.on { stroke: var(--key); stroke-width: 2.4; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; padding: 0 16px 72px; }
+    h1 { font-size: 23px; }
+    h2 { font-size: 18.5px; margin-top: 44px; }
+    table { font-size: 13.5px; }
+    th, td { padding: 7px 6px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>链表是怎么长出来的</h1>
+  <p class="sub">你睡前问的三件事：链表具体怎么构建 / <code>RandomLevel()</code> 的返回值插到哪 / 为什么要随机</p>
+  <p class="meta">2026-11-04 凌晨写 · 中间那块可以一步步点，从空表开始长</p>
+</header>
+
+<div class="essence">
+  <span class="tag">一句话答案，先给你个落脚点</span>
+  <p>跳表的链表<strong>不是一次性建好的</strong>，是每次 <code>Insert</code> 往里塞一个节点、连几根线长出来的。
+  <code>RandomLevel()</code> 只在 <strong>Insert 的第一行</strong>被调用一次，它的返回值就是<strong>这个新节点要连几根线</strong>——1 就只连 L0，3 就连 L0/L1/L2。<strong>随机是为了让「线」自己长成上疏下密的样子，不需要任何人去调整。</strong></p>
+</div>
+
+<h2><span class="num">01</span><code>RandomLevel()</code> 的返回值去哪了</h2>
+
+<p>你写的 <code>RandomLevel()</code> 目前没有任何地方调用它——这就是你觉得「不知道它干了啥」的直接原因。它只在 <code>Insert</code> 里被调用，而且是第一件事：</p>
+
+<pre><code>bool SkipList::Insert(const std::string&amp; key, const std::string&amp; value, RecordType type) {
+  // ── 第 1 步：先决定「这个新节点要连几根线」
+  const int new_level = RandomLevel();          // ← 就是这里，返回值 = 层数
+
+  // ── 第 2 步：Find，把每一层的「前驱」记下来
+  std::vector&lt;Node*&gt; prevs(static_cast&lt;size_t&gt;(new_level), nullptr);
+  Node* p = head_;
+  for (int lv = level_ - 1; lv &gt;= 0; --lv) {
+    while (p-&gt;next[lv] != nullptr &amp;&amp; p-&gt;next[lv]-&gt;key &lt; key) p = p-&gt;next[lv];
+    if (lv &lt; new_level) prevs[lv] = p;          // 只记「新节点真的会用到的」那些层
+  }
+
+  // ── 第 3 步：如果新节点比现有最高层还高，先把多出来的层补起来
+  if (new_level &gt; level_) {
+    for (int lv = level_; lv &lt; new_level; ++lv) prevs[lv] = head_;   // ★ 关键一行
+    level_ = new_level;
+  }
+
+  // ── 第 4 步：逐层挂线（顺序不能反）
+  Node* n = NewNode(key, value, type, new_level);
+  for (int lv = 0; lv &lt; new_level; ++lv) {
+    n-&gt;next[lv] = prevs[lv]-&gt;next[lv];
+    prevs[lv]-&gt;next[lv] = n;
+  }
+  ++size_;
+  return true;   // 严格来说 key 已存在时是「覆盖」不是「插入」，明天再处理
+}</code></pre>
+
+<div class="warn">
+  <span class="tag">这段代码先看结构，别抄</span>
+  <p>明天你要自己写一遍。<strong>真正容易写错的是第 2 步的 `if (lv &lt; new_level)` 和第 3 步的循环</strong>——为什么多出来的层前驱一定是 <code>head_</code>？因为那些层上现在<strong>一个节点都没有</strong>，能找到的「最后一个小于 key 的节点」只能是起点。<br>
+  这正是 <code>head_</code> 必须建 <code>kMaxLevel</code> 层的原因：它是唯一能在「新增一层」时充当起点的节点。</p>
+</div>
+
+<h2><span class="num">02</span>从空表开始，一步一步长</h2>
+
+<p>下面这块是实的。每次点「插入下一个」，会往表里塞一个节点，显示它随机到了几层、连了哪几根线。<strong>注意看 <code>level_</code> 怎么从 1 跳上去。</strong></p>
+
+<div class="viz">
+  <div class="bar">
+    <button id="next">插入下一个</button>
+    <button id="reset">重置为空表</button>
+    <span class="sp"></span>
+    <span class="stat" style="padding:0">
+      <span>level_ = <b id="lv">1</b></span>
+      <span>size_ = <b id="sz">0</b></span>
+    </span>
+  </div>
+  <div id="host"></div>
+  <div class="cap" id="cap">当前是空表：只有 <code>head_</code> 一个节点，它的 <code>next[0..11]</code> 全是 <code>nullptr</code>，<code>level_ = 1</code>，<code>size_ = 0</code>。</div>
+</div>
+
+<h3>五步里最需要看懂的是第 2 步</h3>
+
+<p>插入 <code>b</code> 时 <code>RandomLevel()</code> 返回了 3，而当时 <code>level_</code> 还是 1。这时候发生了什么：</p>
+
+<ol>
+  <li><code>new_level (3) &gt; level_ (1)</code> → 说明要<strong>长出新的一层</strong>；</li>
+  <li>新长出来的 L1、L2 上<strong>空无一人</strong>，所以这两个层的前驱只能是 <code>head_</code>，于是 <code>prevs[1] = prevs[2] = head_</code>；</li>
+  <li><code>level_ = 3</code>；</li>
+  <li>然后把 <code>head_->next[1]</code>、<code>head_->next[2]</code> 指向 <code>b</code>，<code>b</code> 的对应指针指向 <code>nullptr</code>。</li>
+</ol>
+
+<p>如果 <code>head_</code> 当初只建了 1 层，第 4 步就会<strong>读写 <code>head_->next[1]</code> 这个不存在的下标</strong> → 越界。这就是「头节点必须 <code>kMaxLevel</code> 层」的全部理由，没有别的玄机。</p>
+
+<p>另外注意一个容易看漏的细节：这一步里 <code>prevs[0] = a</code>，<strong>不是 <code>head_</code></strong>。因为 L0 上已经有 <code>a</code> 了，「最后一个小于 <code>b</code> 的节点」就是 <code>a</code>。<br>
+所以准确的说法是：<strong>只有「新长出来的那几层」前驱才一定是 <code>head_</code>，已经在用的层仍然按 Find 的结果走。</strong></p>
+
+<div class="essence">
+  <span class="tag">反过来问一句</span>
+  <p><code>level_</code> 会<strong>降</strong>吗？不会。节点删光了它也不降。<br>
+  因为它只是个「查找从哪层开始」的提示值，<strong>偏高无害</strong>——最多从一层空的开始，多降几次，浪费几十纳秒。<br>
+  为省这点开销去维护「降层」逻辑（要扫全表看最高层还剩谁），完全不划算。<strong>「不维护也行的地方就别维护」是工程判断。</strong></p>
+</div>
+
+<h2><span class="num">03</span>为什么要随机</h2>
+
+<p>「层数随机」不是跳表的美学选择，是为了<strong>绕开一个具体的麻烦</strong>：如果层数不是随机的，就得有人负责在每次插入后调整索引，而调整索引很贵。</p>
+
+<p>四种做法，逐个看代价：</p>
+
+<table>
+  <thead><tr><th>做法</th><th>长什么样</th><th>代价</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>① 等距索引</td>
+      <td>每 4 个节点抽 1 个上浮到 L1，每 16 个抽 1 个到 L2……</td>
+      <td><strong>一插入就破功</strong>。中间塞一个，后面所有节点的「第几个」全变了，索引得跟着重排；删一个同理。最坏 O(n)。<br>要修好这个，就得引入「块满才分裂」——那已经是 B+ 树的路子了。</td>
+    </tr>
+    <tr>
+      <td>② 红黑树 / AVL</td>
+      <td>用旋转强制左右子树高度差不超过常数</td>
+      <td>旋转要改<strong>一片</strong>指针（父、子、叔、根），改到一半被别人读到就是错的 → 只能加锁。而且树的形状依赖全局约束，插入要一路回溯到根。</td>
+    </tr>
+    <tr>
+      <td>③ 按 key 哈希定层</td>
+      <td><code>level = f(hash(key))</code>，同一个 key 永远同层</td>
+      <td>可行且可重现，但要额外保证哈希均匀；key 是任意字符串，还得先算哈希。<strong>比随机只多了一个「确定性」的好处，而跳表并不需要这个确定性。</strong></td>
+    </tr>
+    <tr>
+      <td>④ 随机层数<br><span style="color:var(--key)">（跳表选的）</span></td>
+      <td>每层 1/2 概率，几何分布</td>
+      <td>插入只改 <code>new_level</code> 个前驱的 <code>next</code> 指针，<strong>没有全局约束，不需要任何重排</strong>。代价是「可能长得不好看」——但概率极低，见下。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>随机的代价到底有多大</h3>
+
+<p>随机只影响<strong>性能</strong>，不影响<strong>正确性</strong>。哪怕所有节点都随机到 1 层，它依然是一条正确的有序链表，查询依然对——只是退化成 O(n)。</p>
+
+<p>而「所有节点都 ≤ 1 层」的概率是 <code>2⁻ⁿ</code>：</p>
+
+<table>
+  <thead><tr><th>节点数 n</th><th>全部退化成单层的概率</th></tr></thead>
+  <tbody>
+    <tr><td>10</td><td>约 1 / 1000</td></tr>
+    <tr><td>100</td><td>约 1 / 10³⁰</td></tr>
+    <tr><td>1000</td><td>约 1 / 10³⁰¹（比硬盘位翻转的概率还低）</td></tr>
+  </tbody>
+</table>
+
+<p>这就是「随机化数据结构」的核心交易：<strong>用「极低概率退化成 O(n)」，换掉「百分之百要做重平衡」的复杂度。</strong>红黑树是「保证最坏情况」，跳表是「几乎不可能出现最坏情况」——工程上后者更划算，因为你不需要写旋转，也不需要加锁。</p>
+
+<h3>为什么是 1/2，不是 1/4</h3>
+
+<p>课本（Pugh 1989 原始论文）用 1/2，你的代码里 <code>(NextRandom() &amp; 1) == 0</code> 就是 1/2。但<strong>工业实现普遍用 1/4</strong>：</p>
+
+<table>
+  <thead><tr><th>概率 p</th><th>期望层数</th><th>每个节点的平均指针数</th><th>谁在用</th></tr></thead>
+  <tbody>
+    <tr><td>1/2</td><td>2.00</td><td>2.00</td><td>教材、本项目的第 1 版</td></tr>
+    <tr><td>1/4</td><td>1.33</td><td>1.33</td><td><strong>LevelDB</strong>（<code>kBranching = 4</code>）、<strong>Redis zset</strong>（<code>ZSKIPLIST_P = 0.25</code>）</td></tr>
+  </tbody>
+</table>
+
+<p>换成 1/4 只要把那一行改成 <code>(NextRandom() &amp; 3) == 0</code>，<strong>省下 1/3 的指针内存</strong>，代价是层数变浅一点点（查找多降几层，但每层走的步数也变少，几乎打平）。等你做完 MemTable 要压内存的时候，可以把这个当第一个调优点——那会是一个很好的 benchmark 对比数据（同一批数据，两种 p，内存和查找耗时各是多少）。</p>
+
+<h2><span class="num">04</span>「构建链表」这个说法要改一下</h2>
+
+<p>你问「怎么构建这个链表」，暗示的是「先有链表的形状，再往里填数据」。跳表不是这样，<strong>顺序是反的</strong>：</p>
+
+<ul>
+  <li>不存在「先建好一条 3 层的索引链表」这一步；</li>
+  <li>每次 <code>Insert</code> 只做两件事：<strong>① 找到该插的位置（每层各找一个前驱）② 把新节点的几根线接到这些前驱上</strong>；</li>
+  <li>「多层索引」是你事后看整体结构的<strong>观感</strong>，不是任何一行代码直接建出来的。它是成百上千次「随机连 1~3 根线」累积出来的统计结果。</li>
+</ul>
+
+<div class="essence">
+  <span class="tag">换个说法就通了</span>
+  <p>跳表的结构是<strong>涌现</strong>出来的，不是<strong>设计</strong>出来的。<br>
+  代码里只有「单个节点怎么连线」这条局部规则，没有「整个索引长什么样」的全局代码。<br>
+  <strong>你明天要写的 Insert，就是在定义这条局部规则。全局形态是它的副作用。</strong></p>
+</div>
+
+<h2><span class="num">05</span>明天写 Insert 时的三个坑</h2>
+
+<table>
+  <thead><tr><th>坑</th><th>症状</th><th>正确做法</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>两行赋值写反</td>
+      <td>新节点指向自己 → 查询死循环、CPU 打满</td>
+      <td>先 <code>n-&gt;next[lv] = prevs[lv]-&gt;next[lv]</code>，再 <code>prevs[lv]-&gt;next[lv] = n</code></td>
+    </tr>
+    <tr>
+      <td><code>prevs</code> 只开 <code>level_</code> 大小</td>
+      <td><code>new_level &gt; level_</code> 时写越界 → 堆损坏（可能很久以后才炸）</td>
+      <td>开 <code>new_level</code> 大小，不是 <code>level_</code></td>
+    </tr>
+    <tr>
+      <td>升层时忘了补 <code>prevs</code></td>
+      <td><code>prevs[lv]</code> 是 <code>nullptr</code> → 对空指针解引用，直接崩</td>
+      <td>多出来的层全填 <code>head_</code>，再改 <code>level_</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>验证程序我会补进 <code>demo_skip.cpp</code>，会检查四件事：<code>size_</code> 对不对、L0 全链严格升序、每个 <code>next[lv]</code> 指向的节点层数确实 <code>&gt; lv</code>、插 1 万条后随机抽 1000 个 key 全查命中。<strong>第三条就是「不变量②」</strong>，它专抓「prevs 找错层」这类 bug。</p>
+
+<h2><span class="num">06</span>早上自测 3 题</h2>
+
+<details>
+  <summary>1. 空表插入第一个节点，它随机到 5 层。这时候 <code>head_->next[0..4]</code> 分别是什么？</summary>
+  <p>全部指向这个新节点。<code>head_->next[5..11]</code> 仍然是 <code>nullptr</code>，<code>level_</code> 变成 5。<br>
+  原因：<code>prevs[0..4]</code> 全是 <code>head_</code>（这五层上除 head 外没有别的节点），所以每一层都是「head → 新节点 → nullptr」。</p>
+</details>
+
+<details>
+  <summary>2. 为什么 <code>prevs</code> 数组不能只开 <code>level_</code> 那么大？举一个会炸的具体场景。</summary>
+  <p>因为 <code>RandomLevel()</code> 可能返回比 <code>level_</code> 大的值。例：<code>level_ = 3</code>，来了个 <code>new_level = 5</code> 的节点，你要写 <code>prevs[3]</code> 和 <code>prevs[4]</code>，但数组只有 3 个元素 → 越界写。<br>
+  这类错误的恶劣之处：写坏的是<strong>堆上相邻的其它对象</strong>，可能几十行代码之后才崩，甚至只在 release 版崩。所以要开 <code>new_level</code> 大小。</p>
+</details>
+
+<details>
+  <summary>3. 把所有节点的层数都改成「按 key 长度决定」（比如长度 1 → 1 层，长度 5 → 5 层），跳表还对吗？会出什么问题？</summary>
+  <p><strong>对的，依然正确。</strong>层数怎么定不影响正确性，只影响性能。<br>
+  问题在于分布：插入的 key 长度一旦集中在某几个值上（比如全是 8 字节的 id），所有节点层数就一样了——要么全 1 层（退化成链表），要么全 8 层（每层都是全量，索引一点没稀疏，白占内存且查找没变快）。<strong>要保证「每层节点数大约减半」，就必须让层数与 key 无关、且独立随机。</strong></p>
+</details>
+
+<footer>
+  D:\code\lsm-kv\docs\08-链表是怎么长出来的.html · 2026-11-04 凌晨<br>
+  配套：<code>07-跳表可视化.html</code>（查询/插入的单步动画）。
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var MAXC = 4;
+  var TOP = 34, ROW = 50, NW = 48, NH = 36, GAP = 56, HEADW = 56, X0 = 44;
+  var BOT = TOP + (MAXC - 1) * ROW + NH;
+
+  var INSERTS = [['a', 1], ['b', 3], ['c', 1], ['d', 2], ['e', 4]];
+
+  function rowY(lv) { return TOP + (MAXC - 1 - lv) * ROW; }
+
+  function nextAt(nodes, idx, lv) {
+    for (var j = idx + 1; j < nodes.length; ++j) if (nodes[j].lv > lv) return j;
+    return -1;
+  }
+  function keyOf(nodes, idx) { return idx < 0 ? 'head' : nodes[idx].key; }
+
+  function layout(nodes) {
+    var x = X0;
+    var out = [{ key: 'head', lv: MAXC, x: x, w: HEADW }];
+    x += HEADW + 16;
+    for (var i = 0; i < nodes.length; ++i) {
+      out.push({ key: nodes[i].key, lv: nodes[i].lv, x: x, w: NW });
+      x += NW + GAP;
+    }
+    return { all: out, width: Math.max(x + 26, 440) };
+  }
+
+  function draw(nodes, freshKey) {
+    var m = layout(nodes);
+    var all = m.all;
+    var H = BOT + 40;
+    var s = '<svg viewBox="0 0 ' + m.width + ' ' + H + '" width="100%" xmlns="http://www.w3.org/2000/svg">';
+    s += '<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">';
+    s += '<path d="M2 1L8 5L2 9" fill="none" stroke="#8b877c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>';
+
+    for (var lv = MAXC - 1; lv >= 0; --lv) {
+      s += '<text class="lvl" x="' + (X0 - 12) + '" y="' + (rowY(lv) + NH / 2) +
+           '" text-anchor="end" dominant-baseline="central">L' + lv + '</text>';
+    }
+
+    for (var L = 0; L < MAXC; ++L) {
+      for (var i = 0; i < all.length; ++i) {
+        var a = all[i];
+        if (a.lv <= L) continue;
+        var b = null;
+        for (var j = i + 1; j < all.length; ++j) if (all[j].lv > L) { b = all[j]; break; }
+        if (!b) continue;
+        var on = freshKey && (a.key === freshKey || b.key === freshKey);
+        var y = rowY(L) + NH / 2;
+        s += '<line class="arw' + (on ? ' on' : '') + '" x1="' + (a.x + a.w) + '" y1="' + y +
+             '" x2="' + (b.x - 3) + '" y2="' + y + '" marker-end="url(#ah)"/>';
+      }
+    }
+
+    for (var k = 0; k < all.length; ++k) {
+      var n = all[k];
+      var y2 = rowY(n.lv - 1);
+      var cls = 'nd';
+      if (n.key === 'head') cls += ' head';
+      if (freshKey && n.key === freshKey) cls += ' fresh';
+      s += '<g class="' + cls + '"><rect x="' + n.x + '" y="' + y2 + '" width="' + n.w +
+           '" height="' + (BOT - y2) + '" rx="7"/>';
+      s += '<text x="' + (n.x + n.w / 2) + '" y="' + (BOT - NH / 2) +
+           '" text-anchor="middle" dominant-baseline="central">' + n.key + '</text></g>';
+    }
+
+    return s + '</svg>';
+  }
+
+  var host = document.getElementById('host');
+  var capEl = document.getElementById('cap');
+  var lvEl = document.getElementById('lv');
+  var szEl = document.getElementById('sz');
+  var nextBtn = document.getElementById('next');
+
+  var nodes = [];
+  var level_ = 1;
+  var step = 0;
+
+  function render(freshKey, cap) {
+    host.innerHTML = draw(nodes, freshKey);
+    lvEl.textContent = String(level_);
+    szEl.textContent = String(nodes.length);
+    if (cap) capEl.innerHTML = cap;
+    nextBtn.disabled = step >= INSERTS.length;
+  }
+
+  function insertOne() {
+    if (step >= INSERTS.length) return;
+    var key = INSERTS[step][0], nl = INSERTS[step][1];
+
+    var prevs = [];
+    var idx = -1;
+    var trace = [];
+    for (var lv = level_ - 1; lv >= 0; --lv) {
+      var j = nextAt(nodes, idx, lv);
+      while (j >= 0 && nodes[j].key < key) { idx = j; j = nextAt(nodes, idx, lv); }
+      prevs[lv] = idx;
+      if (lv < nl) trace.push('prevs[' + lv + '] = "' + keyOf(nodes, idx) + '"');
+    }
+
+    var grew = nl > level_;
+    if (grew) {
+      for (var L = level_; L < nl; ++L) prevs[L] = -1;
+      level_ = nl;
+    }
+
+    var pos = idx + 1;
+    nodes.splice(pos, 0, { key: key, lv: nl });
+    ++step;
+
+    var cap = '';
+    if (step === 1) {
+      cap = '插入 <b>a</b>，<code>RandomLevel()</code> 返回 <b>1</b>：Find 走完发现 <code>head_-&gt;next[0]</code> 是 nullptr，'
+          + 'prevs[0] = head_。<code>new_level (1)</code> 不大于 <code>level_ (1)</code>，不升层。'
+          + '连一根线：<code>head_-&gt;next[0] = a</code>。size_ = 1。';
+    } else if (step === 2) {
+      cap = '插入 <b>b</b>，返回 <b>3</b>：<code>new_level (3) &gt; level_ (1)</code> → <b>要长出新层</b>。'
+          + 'L1、L2 上空无一人，所以 <code>prevs[1] = prevs[2] = head_</code>，然后 <code>level_ = 3</code>。'
+          + '连三根线，<b>head_ 的 12 层就是为这一步准备的</b>。';
+    } else if (step === 3) {
+      cap = '插入 <b>c</b>，返回 <b>1</b>：只有 L0，前驱是 b。';
+    } else if (step === 4) {
+      cap = '插入 <b>d</b>，返回 <b>2</b>：' + trace.slice().reverse().join('，') + '。'
+          + '<b>注意 prevs[0] 和 prevs[1] 指向的不是同一个节点</b>——这就是每层要单独记前驱的原因。';
+    } else {
+      cap = '插入 <b>e</b>，返回 <b>4</b>：<code>new_level (4) &gt; level_ (3)</code>，于是 <code>prevs[3] = head_</code>、'
+          + '<code>level_ = 4</code>。四层各连一根线。<b>level_ 只升不降</b>，现在它是 4。';
+    }
+    render(key, cap);
+  }
+
+  document.getElementById('next').onclick = insertOne;
+  document.getElementById('reset').onclick = function () {
+    nodes = []; level_ = 1; step = 0;
+    render(null, '当前是空表：只有 <code>head_</code> 一个节点，它的 <code>next[0..11]</code> 全是 <code>nullptr</code>，'
+                 + '<code>level_ = 1</code>，<code>size_ = 0</code>。');
+  };
+
+  render(null, null);
+})();
+</script>
+
+</body>
+</html>

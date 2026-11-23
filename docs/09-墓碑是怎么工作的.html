@@ -1,0 +1,440 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>墓碑是怎么工作的 · LSM 的删除</title>
+<style>
+  :root{
+    --bg:#f6f6f3;
+    --card:#ffffff;
+    --line:#e2e2db;
+    --ink:#1b1b19;
+    --ink2:#5d5d56;
+    --ink3:#8b8b82;
+    --alive:#1f7a4d;
+    --alive-bg:#e6f4ec;
+    --tomb:#b3261e;
+    --tomb-bg:#fbe9e7;
+    --disk:#4a5568;
+    --disk-bg:#eef0f4;
+    --accent:#0b5fa5;
+    --accent-bg:#e8f1fa;
+    --warn:#8a5a00;
+    --warn-bg:#fdf3e0;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:0;
+    background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:48px 28px 80px}
+  h1{font-size:27px;line-height:1.35;margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--ink2);font-size:14.5px;margin:0 0 8px}
+  .meta{color:var(--ink3);font-size:12.5px;font-family:var(--mono);margin-bottom:36px}
+  h2{
+    font-size:17px;margin:44px 0 4px;letter-spacing:-.2px;
+    display:flex;align-items:baseline;gap:10px;
+  }
+  h2 .n{
+    font-family:var(--mono);font-size:11.5px;font-weight:600;
+    color:var(--accent);background:var(--accent-bg);
+    padding:2px 7px;border-radius:4px;letter-spacing:0;
+  }
+  .lead{color:var(--ink2);font-size:14px;margin:0 0 18px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:20px 22px;
+  }
+  code{font-family:var(--mono);font-size:13px;background:#f0f0ec;padding:1.5px 5px;border-radius:4px}
+  strong{font-weight:650}
+
+  /* ── 时间线 ── */
+  .steps{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .steps button{
+    font-family:inherit;font-size:12.5px;cursor:pointer;
+    border:1px solid var(--line);background:#fff;color:var(--ink2);
+    padding:6px 13px;border-radius:20px;transition:.15s;
+  }
+  .steps button:hover{border-color:#c9c9c0;color:var(--ink)}
+  .steps button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.stage{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--line);border-radius:8px;padding:14px 16px;background:#fdfdfc;min-height:150px}
+  .panel .ph{
+    font-size:11.5px;font-family:var(--mono);color:var(--ink3);
+    letter-spacing:.4px;text-transform:uppercase;margin-bottom:10px;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .panel .ph .tag{
+    text-transform:none;letter-spacing:0;font-size:11px;
+    padding:1px 7px;border-radius:20px;background:#f0f0ec;color:var(--ink2);
+  }
+  .panel.disk .ph .tag{background:var(--disk-bg);color:var(--disk)}
+  .rows{display:flex;flex-direction:column;gap:7px}
+  .rec{
+    display:grid;grid-template-columns:34px 1fr auto;align-items:center;
+    gap:10px;font-family:var(--mono);font-size:12.5px;
+    padding:7px 10px;border-radius:6px;background:#fff;
+    border:1px solid var(--line);
+  }
+  .rec .k{color:var(--ink3);font-size:11px}
+  .rec .v{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rec .t{font-size:10.5px;padding:1px 6px;border-radius:20px;white-space:nowrap}
+  .rec.put .t{background:var(--alive-bg);color:var(--alive)}
+  .rec.del{background:var(--tomb-bg);border-color:#f2cfca}
+  .rec.del .v{color:var(--tomb);text-decoration:line-through;opacity:.65}
+  .rec.del .t{background:#fff;color:var(--tomb);border:1px solid #f2cfca}
+  .rec.new{animation:pop .35s ease}
+  @keyframes pop{from{transform:translateY(-4px);opacity:0}to{transform:none;opacity:1}}
+  .empty{color:var(--ink3);font-size:12.5px;font-style:italic;padding:6px 0}
+  .note{
+    margin-top:14px;font-size:13.5px;color:var(--ink2);
+    border-left:3px solid var(--line);padding:2px 0 2px 12px;
+  }
+  .note.hot{border-left-color:var(--tomb);color:var(--tomb)}
+  .note.ok{border-left-color:var(--alive);color:#175f3c}
+  .note b{color:inherit;font-weight:650}
+
+  /* ── 岔路 ── */
+  .tabs{display:flex;gap:8px;margin-bottom:0}
+  .tabs button{
+    font-family:inherit;font-size:13px;cursor:pointer;
+    border:1px solid var(--line);border-bottom:none;
+    background:#f0f0ec;color:var(--ink2);
+    padding:8px 16px;border-radius:8px 8px 0 0;margin-bottom:-1px;
+  }
+  .tabs button.on{background:#fff;color:var(--ink);font-weight:600;border-color:var(--line)}
+  .tabs button.bad.on{box-shadow:inset 0 3px 0 var(--tomb)}
+  .tabs button.good.on{box-shadow:inset 0 3px 0 var(--alive)}
+  .branch{border:1px solid var(--line);border-radius:0 10px 10px 10px;background:#fff;padding:20px 22px}
+  .branch h3{font-size:14.5px;margin:0 0 4px}
+  .branch .tagline{font-size:13px;color:var(--ink2);margin:0 0 16px}
+  .flow{display:flex;flex-direction:column;gap:0}
+  .fstep{display:grid;grid-template-columns:22px 1fr;gap:12px}
+  .fstep .dot{
+    width:22px;height:22px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:11px;
+    background:#f0f0ec;color:var(--ink2);margin-top:2px;
+  }
+  .fstep .bar{width:1px;background:var(--line);margin:0 auto;flex:1}
+  .fstep .body{padding-bottom:16px;font-size:13.5px;min-width:0}
+  .fstep .body .lbl{font-family:var(--mono);font-size:12px;color:var(--ink3)}
+  .fstep:last-child .body{padding-bottom:0}
+  .verdict{
+    margin-top:18px;padding:12px 14px;border-radius:8px;font-size:13.5px;
+  }
+  .verdict.bad{background:var(--tomb-bg);color:#7f1d1a;border:1px solid #f2cfca}
+  .verdict.good{background:var(--alive-bg);color:#14532d;border:1px solid #c3e6d2}
+
+  /* ── 记录字段 ── */
+  .fields{display:flex;gap:0;margin:16px 0 6px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .fld{flex:1;padding:12px 14px;background:#fff;border-right:1px solid var(--line)}
+  .fld:last-child{border-right:none}
+  .fld .fn{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:3px}
+  .fld .fv{font-family:var(--mono);font-size:13px;color:var(--ink)}
+  .fld.hi{background:var(--tomb-bg)}
+  .fld.hi .fv{color:var(--tomb);font-weight:600}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--ink3);font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+  td code{font-size:12.5px}
+  tr:last-child td{border-bottom:none}
+
+  .quote{
+    margin:22px 0 0;padding:16px 20px;border-radius:10px;
+    background:#1b1b19;color:#f2f2ee;font-size:14.5px;line-height:1.65;
+  }
+  .quote b{color:#ffd9a0}
+  .kbd{
+    font-family:var(--mono);font-size:12px;background:#fff;border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:4px;padding:1px 6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>墓碑是怎么工作的</h1>
+  <p class="sub">LSM 的删除不是把数据拿掉，是给这个 key 追加一份死亡通知。</p>
+  <p class="meta">docs/09 · 2026-11-06 · 配合 include/lsmkv/skip_list.h 的 TODO 6</p>
+
+  <!-- ───────────────────────── 1 ───────────────────────── -->
+  <h2><span class="n">01</span>先看一个具体的麻烦</h2>
+  <p class="lead">下面四步是真实的时序。注意第三步：<strong>Delete 执行的那一刻，MemTable 里根本没有 <code>b</code></strong>。</p>
+
+  <div class="card">
+    <div class="steps" id="steps"></div>
+    <div class="stage">
+      <div class="panel">
+        <div class="ph"><span>MemTable（内存，跳表）</span><span class="tag" id="memtag">—</span></div>
+        <div class="rows" id="memrows"></div>
+      </div>
+      <div class="panel disk">
+        <div class="ph"><span>SSTable L0（磁盘，只读）</span><span class="tag" id="disktag">—</span></div>
+        <div class="rows" id="diskrows"></div>
+      </div>
+    </div>
+    <div class="note" id="stepnote"></div>
+  </div>
+
+  <!-- ───────────────────────── 2 ───────────────────────── -->
+  <h2><span class="n">02</span>于是 Delete 只有一条路</h2>
+  <p class="lead">「查一下，不在就跳过」是 <code>std::map::erase</code> 的直觉，在 LSM 里是致命错误。点两个标签对比。</p>
+
+  <div class="tabs" id="tabs">
+    <button class="bad on" data-b="bad">先查再删（错）</button>
+    <button class="good" data-b="good">无条件写墓碑（对）</button>
+  </div>
+  <div class="branch">
+    <h3 id="bt"></h3>
+    <p class="tagline" id="bq"></p>
+    <div class="flow" id="bflow"></div>
+    <div class="verdict" id="bverd"></div>
+  </div>
+
+  <!-- ───────────────────────── 3 ───────────────────────── -->
+  <h2><span class="n">03</span>墓碑就是一条普通记录</h2>
+  <p class="lead">它躺在跳表的节点里，字段和别的记录一模一样，只有 <code>type</code> 不同。</p>
+
+  <div class="card">
+    <div class="fields">
+      <div class="fld"><div class="fn">key</div><div class="fv">"b"</div></div>
+      <div class="fld"><div class="fn">value</div><div class="fv">""</div></div>
+      <div class="fld hi"><div class="fn">type</div><div class="fv">kDelete</div></div>
+      <div class="fld"><div class="fn">next[0..k]</div><div class="fv">指针</div></div>
+    </div>
+    <p class="note" style="margin-top:8px">
+      因为结构完全一样，<strong>写入路径一行都不用新写</strong>：
+      <code>Delete(k)</code> 就是 <code>Insert(k, "", kDelete)</code>。
+      查找前驱、同 key 覆盖、随机层数、升层补哨兵、<code>++size_</code> —— 全都复用。
+    </p>
+    <p class="note ok" style="margin-top:10px">
+      <b>删除是写入的一种。</b>LevelDB / RocksDB 的 Delete 走的就是 Put 完全相同的代码路径。
+      记住这句，后面的 compaction、MVCC、事务都会顺很多。
+    </p>
+  </div>
+
+  <!-- ───────────────────────── 4 ───────────────────────── -->
+  <h2><span class="n">04</span>Get 得跟着改</h2>
+  <p class="lead">墓碑在链表里，查找一定能碰到它。不处理的话，用户会看到「b 还在，值是空串」。</p>
+
+  <div class="card">
+    <table>
+      <tr><th style="width:100px">找到什么</th><th>Get 应该返回</th><th>为什么</th></tr>
+      <tr>
+        <td><code>type == kPut</code></td>
+        <td style="color:var(--alive)"><code>true</code> + 写出参</td>
+        <td>正常命中</td>
+      </tr>
+      <tr>
+        <td><code>type == kDelete</code></td>
+        <td style="color:var(--tomb)"><code>false</code>，出参不动</td>
+        <td>对读者而言这个 key 已经不存在了</td>
+      </tr>
+      <tr>
+        <td>什么都没找到</td>
+        <td><code>false</code></td>
+        <td>从来就没有这个 key</td>
+      </tr>
+    </table>
+    <p class="note hot" style="margin-top:14px">
+      <b>位置很关键</b>：<code>return false</code> 必须写在 <code>*value = ...</code> <strong>之前</strong>。
+      写在后面，出参已经被墓碑的空串写脏了 —— 返回值虽然是 false，
+      但调用方如果先用了出参，就会拿到错值。
+    </p>
+    <p class="note" style="margin-top:10px">
+      为什么不把这次判断推给调用方？因为那是 bug 工厂 —— 总有人忘。
+      <strong>层次越低的封装，越该把「用户视角的正确语义」做掉。</strong>
+      LevelDB 的 <code>MemTable::Get</code> 就是在这里把 <code>kTypeDeletion</code> 转成 <code>NotFound</code>。
+    </p>
+  </div>
+
+  <!-- ───────────────────────── 5 ───────────────────────── -->
+  <h2><span class="n">05</span>两层视角必须分开</h2>
+  <p class="lead">同一份内存，两个读者，看的东西不一样。混淆这两层，Week 5 落盘时必炸。</p>
+
+  <div class="card">
+    <table>
+      <tr><th style="width:140px">视角</th><th>看到什么</th><th>谁在用</th></tr>
+      <tr>
+        <td><strong>物理层</strong><br><code>DebugFind</code></td>
+        <td>每个 key 一条记录，<strong style="color:var(--tomb)">包含墓碑</strong>。<code>Size()</code> 也算它们。</td>
+        <td>compaction、落盘遍历、测试</td>
+      </tr>
+      <tr>
+        <td><strong>逻辑层</strong><br><code>Get</code> / <code>Delete</code></td>
+        <td>墓碑 = 不存在。用户永远看不见 <code>kDelete</code>。</td>
+        <td>上层 DB、业务代码</td>
+      </tr>
+    </table>
+    <p class="note" style="margin-top:14px">
+      Week 5 的坑就藏在这里：<strong>MemTable 落盘时不能跳过墓碑</strong>。
+      如果遍历时把墓碑过滤掉，磁盘上那份老数据就永远删不掉了。
+      墓碑必须写进 SSTable，一路沉到最底层，由 compaction 在那里才真正消灭。
+    </p>
+  </div>
+
+  <div class="quote">
+    B-Tree 的删除是<b>「就地消灭」</b>；LSM 的删除是<b>「追加一个噩耗」</b>。<br>
+    前者需要先找到东西，后者不需要 —— 因为它不知道东西在哪一层。
+  </div>
+
+</div>
+
+<script>
+(function(){
+  // ─────────────────── 时间线 ───────────────────
+  var steps = [
+    {
+      t:'① Put("b","2")',
+      mem:[{k:'b',v:'"2"',ty:'put',lb:'kPut'}],
+      disk:[],
+      memtag:'1 条',
+      disktag:'空',
+      note:'数据先写进 MemTable（内存里的跳表），这是 LSM 写路径的第一站。此时磁盘上一片空白。',
+      cls:''
+    },
+    {
+      t:'② MemTable 满了 → 落盘',
+      mem:[],
+      disk:[{k:'b',v:'"2"',ty:'put',lb:'kPut'}],
+      memtag:'已清空',
+      disktag:'SSTable #1',
+      note:'MemTable 写满（几 MB）就整体冻结、排成有序文件刷到磁盘，然后换一张新的空 MemTable。b 现在在磁盘上，内存里没有了。',
+      cls:''
+    },
+    {
+      t:'③ Delete("b")',
+      mem:[],
+      disk:[{k:'b',v:'"2"',ty:'put',lb:'kPut'}],
+      memtag:'空的！',
+      disktag:'SSTable #1（只读）',
+      note:'★ 这一刻，MemTable 里【没有】b。任何「先查一下在不在」的判断都会得出「不在，什么都不用做」—— 而磁盘上那份 b="2" 完好无损。',
+      cls:'hot'
+    },
+    {
+      t:'④ 之后读 b',
+      mem:[{k:'b',v:'""',ty:'del',lb:'kDelete'}],
+      disk:[{k:'b',v:'"2"',ty:'put',lb:'kPut'}],
+      memtag:'墓碑',
+      disktag:'SSTable #1',
+      note:'因为第 ③ 步无条件写了墓碑，现在读取会先在 MemTable 撞上 kDelete，直接判定「不存在」，不再往下层找。老数据被这块墓碑挡住了。',
+      cls:'ok'
+    }
+  ];
+
+  var stepEls = document.getElementById('steps');
+  var memRows = document.getElementById('memrows');
+  var diskRows = document.getElementById('diskrows');
+  var memTag  = document.getElementById('memtag');
+  var diskTag = document.getElementById('disktag');
+  var stepNote = document.getElementById('stepnote');
+  var cur = 0;
+
+  function recHTML(r){
+    return '<div class="rec '+r.ty+'">'+
+             '<span class="k">'+r.k+'</span>'+
+             '<span class="v">'+r.v+'</span>'+
+             '<span class="t">'+r.lb+'</span>'+
+           '</div>';
+  }
+
+  function render(){
+    stepEls.querySelectorAll('button').forEach(function(b,i){
+      b.className = (i===cur?'on':'');
+    });
+    var s = steps[cur];
+
+    memRows.innerHTML = s.mem.length
+      ? s.mem.map(recHTML).join('')
+      : '<div class="empty">（空）</div>';
+    diskRows.innerHTML = s.disk.length
+      ? s.disk.map(recHTML).join('')
+      : '<div class="empty">（还没有数据）</div>';
+
+    memTag.textContent = s.memtag;
+    diskTag.textContent = s.disktag;
+    stepNote.className = 'note' + (s.cls?' '+s.cls:'');
+    stepNote.innerHTML = s.note;
+  }
+
+  steps.forEach(function(s,i){
+    var b = document.createElement('button');
+    b.textContent = s.t;
+    b.onclick = function(){ cur = i; render(); };
+    stepEls.appendChild(b);
+  });
+  render();
+
+  // ─────────────────── 岔路 ───────────────────
+  var branches = {
+    bad:{
+      title:'「先查一下，不在就跳过」',
+      quote:'这是 std::map::erase 的直觉：找不到就什么也不做。在 LSM 里它是错的。',
+      steps:[
+        {l:'Delete("b") 开始', b:'先调 Get("b")。MemTable 是空的 —— 查不到。'},
+        {l:'判断：不存在', b:'按直觉「没这条数据，不用删」，直接 return。'},
+        {l:'MemTable 状态', b:'没有任何写入。磁盘上 SSTable #1 里的 b="2" 完好。'},
+        {l:'之后读 b', b:'MemTable 没有 → 往下找 → 在 SSTable 里读到 b="2"。'}
+      ],
+      verd:'<b>删了等于没删</b>，而且全程没有任何报错。你的测试会全绿，用户会投诉「删除不生效」。<br>更糟的是：这个 bug 只在「数据已经落过盘」时才出现 —— 本地小数据量测试永远测不出来。'
+    },
+    good:{
+      title:'「无条件写墓碑」',
+      quote:'Delete 不去猜老数据在哪，只声明「从此刻起 b 是死的」。',
+      steps:[
+        {l:'Delete("b") 开始', b:'不查。直接 Insert("b", "", kDelete)。'},
+        {l:'写入结果', b:'MemTable 多一条 b 的记录，type = kDelete。Size() +1。'},
+        {l:'之后读 b', b:'MemTable 命中了，但 type 是 kDelete → Get 返回 false。'},
+        {l:'清理留给谁', b:'compaction 合并 SSTable 时看到墓碑，才会把更老的 b="2" 一起扔掉。'}
+      ],
+      verd:'<b>正确。</b>代价是墓碑会占内存、占磁盘，直到 compaction 收走 —— 这是 LSM 用空间换「删除不用先找」的必然成本。<br>RocksDB 里有个专门指标 <code>num_deletes</code>，就是在盯这个账。'
+    }
+  };
+
+  var tabs = document.getElementById('tabs');
+  var bt = document.getElementById('bt');
+  var bq = document.getElementById('bq');
+  var bflow = document.getElementById('bflow');
+  var bverd = document.getElementById('bverd');
+
+  function renderBranch(key){
+    var d = branches[key];
+    bt.textContent = d.title;
+    bq.textContent = d.quote;
+
+    var html = '';
+    d.steps.forEach(function(s,i){
+      html += '<div class="fstep">'+
+                '<div class="dot">'+(i+1)+'</div>'+
+                '<div class="body">'+
+                  '<div class="lbl">'+s.l+'</div>'+
+                  '<div>'+s.b+'</div>'+
+                '</div>'+
+              '</div>';
+    });
+    bflow.innerHTML = html;
+    bverd.className = 'verdict ' + key;
+    bverd.innerHTML = d.verd;
+  }
+
+  tabs.querySelectorAll('button').forEach(function(b){
+    b.onclick = function(){
+      tabs.querySelectorAll('button').forEach(function(x){ x.className = x.className.replace(' on',''); });
+      b.className += ' on';
+      renderBranch(b.dataset.b);
+    };
+  });
+  renderBranch('bad');
+})();
+</script>
+</body>
+</html>
